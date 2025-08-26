@@ -1,0 +1,55 @@
+{
+  "name": "devchrome-mcp",
+  "version": "1.1.0",
+  "description": "MCP (Model Context Protocol) сервер для работы с браузером через Puppeteer",
+  "main": "mcp_server.js",
+  "type": "module",
+  "bin": {
+    "devchrome-mcp": "./mcp_server.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node mcp_server.js",
+    "dev": "node mcp_server.js",
+    "build": "npm run lint && npm run validate",
+    "build:full": "node build.js",
+    "lint": "echo \"No linting configured\"",
+    "validate": "node -c mcp_server.js && echo \"Syntax validation passed\"",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "puppeteer",
+    "chrome",
+    "devtools",
+    "browser",
+    "automation",
+    "web-scraping"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/devchrome-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/devchrome-mcp/issues"
+  },
+  "homepage": "https://github.com/yourusername/devchrome-mcp#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.1",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "install": "^0.13.0",
+    "npm": "^11.5.2",
+    "puppeteer": "^24.15.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "zod-to-json-schema": "^3.24.6"
+  }
+}
