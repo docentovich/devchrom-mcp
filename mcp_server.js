@@ -9,6 +9,10 @@ import Jimp from 'jimp';
 import pixelmatch from 'pixelmatch';
 import fetch from 'node-fetch';
 
+/* -------------------- Configuration -------------------- */
+// Figma token from environment variable (can be set in MCP config)
+const FIGMA_TOKEN = process.env.FIGMA_TOKEN || null;
+
 /* -------------------- Puppeteer: один браузер на всё приложение -------------------- */
 let browserPromise = null;
 async function getBrowser() {
@@ -2000,7 +2004,7 @@ server.registerTool(
         title: 'Get Figma Frame',
         description: 'Export and download a Figma frame as PNG image for comparison. Requires Figma API token and file/node IDs from Figma URLs.',
         inputSchema: {
-            figmaToken: z.string().describe('Figma API token (get from https://www.figma.com/developers/api#access-tokens)'),
+            figmaToken: z.string().optional().describe('Figma API token (optional if FIGMA_TOKEN env var is set)'),
             fileKey: z.string().describe('Figma file key (from URL: figma.com/file/FILE_KEY/...)'),
             nodeId: z.string().describe('Figma node ID (frame/component ID)'),
             scale: z.number().min(0.1).max(4).optional().describe('Export scale (0.1-4, default: 2)'),
@@ -2008,11 +2012,16 @@ server.registerTool(
         }
     },
     async ({ figmaToken, fileKey, nodeId, scale = 2, format = 'png' }) => {
+        // Use provided token or fall back to environment variable
+        const token = figmaToken || FIGMA_TOKEN;
+        if (!token) {
+            throw server.error.InvalidInput('Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
+        }
         try {
             // Получаем URL для экспорта
             const exportData = await fetchFigmaAPI(
                 `images/${fileKey}?ids=${nodeId}&scale=${scale}&format=${format}`, 
-                figmaToken
+                token
             );
             
             if (!exportData.images || !exportData.images[nodeId]) {
@@ -2030,7 +2039,7 @@ server.registerTool(
             const imageBuffer = await imageResponse.buffer();
             
             // Получаем информацию о frame
-            const fileData = await fetchFigmaAPI(`files/${fileKey}`, figmaToken);
+            const fileData = await fetchFigmaAPI(`files/${fileKey}`, token);
             
             // Ищем информацию о ноде
             function findNode(node, targetId) {
@@ -2146,7 +2155,7 @@ Eliminates guesswork by providing direct, automated design-vs-reality comparison
 - Back-and-forth between designers and developers
 - Guesswork about design fidelity requirements`,
         inputSchema: {
-            figmaToken: z.string().describe('Figma API token'),
+            figmaToken: z.string().optional().describe('Figma API token (optional if FIGMA_TOKEN env var is set)'),
             fileKey: z.string().describe('Figma file key'),
             nodeId: z.string().describe('Figma frame/component ID'),
             url: z.string().url().describe('Web page URL'),
@@ -2156,13 +2165,18 @@ Eliminates guesswork by providing direct, automated design-vs-reality comparison
         }
     },
     async ({ figmaToken, fileKey, nodeId, url, selector, threshold = 0.05, figmaScale = 2 }) => {
+        // Use provided token or fall back to environment variable
+        const token = figmaToken || FIGMA_TOKEN;
+        if (!token) {
+            throw server.error.InvalidInput('Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
+        }
         const { page } = await createPage();
         
         try {
             // Получаем Figma изображение
             const exportData = await fetchFigmaAPI(
                 `images/${fileKey}?ids=${nodeId}&scale=${figmaScale}&format=png`, 
-                figmaToken
+                token
             );
             
             if (!exportData.images || !exportData.images[nodeId]) {
@@ -2262,15 +2276,20 @@ server.registerTool(
         title: 'Get Figma Design Specifications',
         description: 'Extract detailed design specifications from Figma including colors, fonts, dimensions, and spacing. Perfect for design-to-code comparison.',
         inputSchema: {
-            figmaToken: z.string().describe('Figma API token'),
+            figmaToken: z.string().optional().describe('Figma API token (optional if FIGMA_TOKEN env var is set)'),
             fileKey: z.string().describe('Figma file key'),
             nodeId: z.string().describe('Figma frame/component ID')
         }
     },
     async ({ figmaToken, fileKey, nodeId }) => {
+        // Use provided token or fall back to environment variable
+        const token = figmaToken || FIGMA_TOKEN;
+        if (!token) {
+            throw server.error.InvalidInput('Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
+        }
         try {
             // Получаем данные файла
-            const fileData = await fetchFigmaAPI(`files/${fileKey}`, figmaToken);
+            const fileData = await fetchFigmaAPI(`files/${fileKey}`, token);
             
             // Ищем нужный узел
             function findNodeWithPath(node, targetId, path = []) {
@@ -4482,10 +4501,10 @@ Perfect for design review meetings, client presentations, and development docume
             url2: z.string().url().describe('Implementation URL (actual version)'),
             selector: z.string().describe('Main container selector to analyze'),
             figmaConfig: z.object({
-                token: z.string(),
+                token: z.string().optional(),
                 fileKey: z.string(),
                 nodeId: z.string()
-            }).optional().describe('Figma integration for design source comparison'),
+            }).optional().describe('Figma integration for design source comparison (token optional if FIGMA_TOKEN env var is set)'),
             reportOptions: z.object({
                 includeVisuals: z.boolean().optional().describe('Include visual comparison and heat maps (default: true)'),
                 includeSemantics: z.boolean().optional().describe('Include DOM structure and accessibility analysis (default: true)'),
@@ -4622,9 +4641,15 @@ Perfect for design review meetings, client presentations, and development docume
                     const { page } = await createPage();
                     
                     try {
+                        // Use provided token or fall back to environment variable
+                        const figmaToken = figmaConfig.token || FIGMA_TOKEN;
+                        if (!figmaToken) {
+                            throw new Error('Figma token is required in figmaConfig.token or FIGMA_TOKEN env var');
+                        }
+                        
                         const exportData = await fetchFigmaAPI(
                             `images/${figmaConfig.fileKey}?ids=${figmaConfig.nodeId}&scale=2&format=png`, 
-                            figmaConfig.token
+                            figmaToken
                         );
                         
                         if (exportData.images && exportData.images[figmaConfig.nodeId]) {
@@ -5081,6 +5106,553 @@ Perfect for design reviews, client feedback, and developer guidance.
                     ]
                 };
             }
+            
+        } finally {
+            await page.close().catch(() => {});
+        }
+    }
+);
+
+/* 37) generateAIPrompt - генерация промптов для AI агентов */
+server.registerTool(
+    'generateAIPrompt',
+    {
+        title: 'Generate AI Agent Prompt',
+        description: `🤖 AI PROMPT GENERATOR 🤖
+
+Dynamically generates context-aware prompts for AI agents based on page analysis.
+Creates detailed, structured prompts that help AI understand and work with web pages.
+
+🎯 USE THIS WHEN:
+- Need to create tasks for AI agents to analyze pages
+- Want to generate test scenarios from page structure
+- Creating documentation prompts from live pages
+- Building context-aware debugging instructions
+- Generating code review prompts from implementation
+- Creating accessibility audit prompts`,
+        inputSchema: {
+            url: z.string().url().describe('Page URL to analyze'),
+            selector: z.string().optional().describe('Optional selector to focus analysis'),
+            promptType: z.enum([
+                'bug-report',
+                'code-review', 
+                'test-generation',
+                'accessibility-audit',
+                'performance-analysis',
+                'design-review',
+                'content-review',
+                'seo-analysis',
+                'custom'
+            ]).describe('Type of prompt to generate'),
+            context: z.object({
+                goal: z.string().optional().describe('What you want to achieve'),
+                constraints: z.array(z.string()).optional().describe('Any constraints or requirements'),
+                focusAreas: z.array(z.string()).optional().describe('Specific areas to focus on'),
+                outputFormat: z.enum(['markdown', 'json', 'text']).optional().default('markdown')
+            }).optional().describe('Additional context for prompt generation'),
+            includePageData: z.boolean().optional().default(true).describe('Include page analysis in prompt')
+        }
+    },
+    async ({ url, selector, promptType, context = {}, includePageData = true }) => {
+        const { page, client } = await createPage();
+        
+        try {
+            await page.goto(url, { waitUntil: 'networkidle2' });
+            
+            let pageAnalysis = {};
+            
+            if (includePageData) {
+                // Сбор данных о странице
+                pageAnalysis = await page.evaluate((sel) => {
+                    const targetElement = sel ? document.querySelector(sel) : document.body;
+                    if (!targetElement) return null;
+                    
+                    // Анализ структуры
+                    const structure = {
+                        tagName: targetElement.tagName.toLowerCase(),
+                        classes: Array.from(targetElement.classList),
+                        id: targetElement.id || null,
+                        childrenCount: targetElement.children.length,
+                        textLength: targetElement.textContent?.length || 0
+                    };
+                    
+                    // Поиск форм
+                    const forms = Array.from(targetElement.querySelectorAll('form')).map(form => ({
+                        id: form.id,
+                        action: form.action,
+                        method: form.method,
+                        fields: Array.from(form.elements).map(el => ({
+                            type: el.type,
+                            name: el.name,
+                            id: el.id,
+                            required: el.required
+                        })).filter(f => f.type && f.type !== 'submit')
+                    }));
+                    
+                    // Поиск интерактивных элементов
+                    const interactive = {
+                        buttons: targetElement.querySelectorAll('button').length,
+                        links: targetElement.querySelectorAll('a[href]').length,
+                        inputs: targetElement.querySelectorAll('input, textarea, select').length
+                    };
+                    
+                    // Медиа контент
+                    const media = {
+                        images: targetElement.querySelectorAll('img').length,
+                        videos: targetElement.querySelectorAll('video').length,
+                        iframes: targetElement.querySelectorAll('iframe').length
+                    };
+                    
+                    // Семантические элементы
+                    const semantic = {
+                        headers: targetElement.querySelectorAll('h1, h2, h3, h4, h5, h6').length,
+                        sections: targetElement.querySelectorAll('section, article, aside, nav').length,
+                        lists: targetElement.querySelectorAll('ul, ol').length
+                    };
+                    
+                    // Meta информация (если анализируем всю страницу)
+                    const meta = !sel ? {
+                        title: document.title,
+                        description: document.querySelector('meta[name="description"]')?.content,
+                        viewport: document.querySelector('meta[name="viewport"]')?.content,
+                        charset: document.characterSet
+                    } : null;
+                    
+                    return {
+                        url: window.location.href,
+                        structure,
+                        forms,
+                        interactive,
+                        media,
+                        semantic,
+                        meta
+                    };
+                }, selector);
+                
+                if (!pageAnalysis) {
+                    throw server.error.NotFound('Element not found or analysis failed');
+                }
+            }
+            
+            // Шаблоны промптов для разных типов
+            const promptTemplates = {
+                'bug-report': {
+                    template: `# Bug Report Analysis Request
+
+## Page Context
+URL: ${url}
+${selector ? `Focus Element: ${selector}` : 'Scope: Entire page'}
+
+## Page Structure Analysis
+${JSON.stringify(pageAnalysis, null, 2)}
+
+## Investigation Task
+Please analyze the ${selector || 'page'} for the following potential issues:
+
+1. **Visual Bugs**: Layout breaks, overlapping elements, incorrect alignments
+2. **Functional Issues**: Broken interactions, non-responsive elements, JavaScript errors
+3. **Cross-browser Compatibility**: Issues that might appear in different browsers
+4. **Responsive Design**: Problems at different viewport sizes
+5. **Accessibility Violations**: WCAG compliance issues
+
+${context.goal ? `\n### Specific Goal\n${context.goal}` : ''}
+${context.focusAreas?.length ? `\n### Focus Areas\n${context.focusAreas.map(a => `- ${a}`).join('\n')}` : ''}
+
+## Expected Output
+Provide a detailed bug report including:
+- Issue description and severity
+- Steps to reproduce
+- Expected vs actual behavior
+- Suggested fixes
+- Screenshots or specific selectors of problematic elements`
+                },
+                
+                'code-review': {
+                    template: `# Frontend Code Review Request
+
+## Implementation Context
+URL: ${url}
+${selector ? `Component Selector: ${selector}` : 'Full Page Review'}
+
+## Current Implementation Analysis
+${JSON.stringify(pageAnalysis, null, 2)}
+
+## Review Checklist
+Please review the implementation for:
+
+1. **Code Quality**
+   - Semantic HTML usage
+   - CSS best practices
+   - JavaScript performance
+
+2. **Accessibility**
+   - ARIA attributes
+   - Keyboard navigation
+   - Screen reader compatibility
+
+3. **Performance**
+   - Resource optimization
+   - Render blocking resources
+   - Bundle size concerns
+
+4. **Security**
+   - XSS vulnerabilities
+   - Input validation
+   - Secure data handling
+
+${context.goal ? `\n## Review Goal\n${context.goal}` : ''}
+${context.constraints?.length ? `\n## Constraints\n${context.constraints.map(c => `- ${c}`).join('\n')}` : ''}
+
+## Deliverables
+- Code quality score (1-10)
+- Critical issues that must be fixed
+- Recommendations for improvement
+- Best practices violations`
+                },
+                
+                'test-generation': {
+                    template: `# Test Scenario Generation
+
+## Application Under Test
+URL: ${url}
+${selector ? `Test Focus: ${selector}` : 'Full Page Testing'}
+
+## Page Analysis
+${JSON.stringify(pageAnalysis, null, 2)}
+
+## Test Generation Requirements
+
+Generate comprehensive test scenarios for:
+
+1. **Functional Tests**
+   - Form submissions: ${pageAnalysis.forms?.length || 0} forms found
+   - Button interactions: ${pageAnalysis.interactive?.buttons || 0} buttons found
+   - Navigation flows: ${pageAnalysis.interactive?.links || 0} links found
+
+2. **Visual Regression Tests**
+   - Component rendering
+   - Responsive breakpoints
+   - Theme variations
+
+3. **Integration Tests**
+   - API interactions
+   - State management
+   - Data flow
+
+4. **Edge Cases**
+   - Error states
+   - Empty states
+   - Loading states
+   - Boundary conditions
+
+${context.goal ? `\n## Testing Goal\n${context.goal}` : ''}
+${context.focusAreas?.length ? `\n## Priority Areas\n${context.focusAreas.map(a => `- ${a}`).join('\n')}` : ''}
+
+## Expected Output
+Generate test cases in the following format:
+- Test name and description
+- Prerequisites and setup
+- Test steps
+- Expected results
+- Test data requirements`
+                },
+                
+                'accessibility-audit': {
+                    template: `# Accessibility Audit Request
+
+## Target Page
+URL: ${url}
+${selector ? `Audit Focus: ${selector}` : 'Full Page Audit'}
+
+## Page Structure
+${JSON.stringify(pageAnalysis, null, 2)}
+
+## WCAG 2.1 Compliance Audit
+
+Please conduct a comprehensive accessibility audit covering:
+
+1. **Perceivable**
+   - Text alternatives for images
+   - Color contrast ratios
+   - Responsive text sizing
+   - Media alternatives
+
+2. **Operable**
+   - Keyboard accessibility
+   - Focus indicators
+   - Skip navigation links
+   - Timing adjustments
+
+3. **Understandable**
+   - Label clarity
+   - Error identification
+   - Consistent navigation
+   - Input assistance
+
+4. **Robust**
+   - Valid HTML
+   - ARIA implementation
+   - Compatibility with assistive technologies
+
+## Interactive Elements Found
+- Buttons: ${pageAnalysis.interactive?.buttons || 0}
+- Links: ${pageAnalysis.interactive?.links || 0}
+- Form inputs: ${pageAnalysis.interactive?.inputs || 0}
+
+${context.goal ? `\n## Audit Focus\n${context.goal}` : ''}
+
+## Deliverables
+- WCAG compliance level (A, AA, AAA)
+- Critical violations with severity
+- Remediation recommendations
+- Priority fix order`
+                },
+                
+                'performance-analysis': {
+                    template: `# Performance Analysis Request
+
+## Page Details
+URL: ${url}
+${selector ? `Component Focus: ${selector}` : 'Full Page Analysis'}
+
+## Initial Page Metrics
+${JSON.stringify(pageAnalysis, null, 2)}
+
+## Performance Investigation Areas
+
+1. **Loading Performance**
+   - Initial load time
+   - Time to Interactive (TTI)
+   - First Contentful Paint (FCP)
+   - Largest Contentful Paint (LCP)
+
+2. **Runtime Performance**
+   - JavaScript execution time
+   - Render performance
+   - Memory usage
+   - Animation smoothness
+
+3. **Resource Optimization**
+   - Images: ${pageAnalysis.media?.images || 0} found
+   - Videos: ${pageAnalysis.media?.videos || 0} found
+   - Third-party scripts
+   - Bundle sizes
+
+4. **Network Analysis**
+   - Request waterfall
+   - Cache utilization
+   - CDN effectiveness
+   - API response times
+
+${context.goal ? `\n## Analysis Goal\n${context.goal}` : ''}
+${context.constraints?.length ? `\n## Performance Constraints\n${context.constraints.map(c => `- ${c}`).join('\n')}` : ''}
+
+## Expected Analysis Output
+- Core Web Vitals scores
+- Performance bottlenecks identified
+- Optimization recommendations with impact estimates
+- Implementation priority matrix`
+                },
+                
+                'design-review': {
+                    template: `# Design Implementation Review
+
+## Implementation URL
+${url}
+${selector ? `Component: ${selector}` : 'Full Page Design'}
+
+## Current Implementation
+${JSON.stringify(pageAnalysis, null, 2)}
+
+## Design Review Criteria
+
+1. **Visual Consistency**
+   - Typography hierarchy
+   - Color scheme adherence
+   - Spacing and alignment
+   - Component consistency
+
+2. **Responsive Design**
+   - Mobile optimization
+   - Tablet layouts
+   - Desktop experience
+   - Breakpoint handling
+
+3. **Interaction Design**
+   - Hover states
+   - Active states
+   - Transitions and animations
+   - Feedback mechanisms
+
+4. **Brand Alignment**
+   - Style guide compliance
+   - Design system usage
+   - Brand personality expression
+   - Visual hierarchy
+
+${context.goal ? `\n## Review Focus\n${context.goal}` : ''}
+${context.focusAreas?.length ? `\n## Key Areas\n${context.focusAreas.map(a => `- ${a}`).join('\n')}` : ''}
+
+## Deliverables
+- Design fidelity score (1-100)
+- Deviation list from design specs
+- Improvement recommendations
+- Priority fixes for design consistency`
+                },
+                
+                'content-review': {
+                    template: `# Content Quality Review
+
+## Page URL
+${url}
+${selector ? `Content Section: ${selector}` : 'Full Page Content'}
+
+## Content Structure
+${JSON.stringify(pageAnalysis, null, 2)}
+
+## Content Analysis Requirements
+
+1. **Content Quality**
+   - Clarity and readability
+   - Grammar and spelling
+   - Tone consistency
+   - Message effectiveness
+
+2. **SEO Optimization**
+   - Keyword usage
+   - Meta descriptions
+   - Header hierarchy
+   - Internal linking
+
+3. **User Experience**
+   - Content organization
+   - Scanability
+   - Call-to-action effectiveness
+   - Information architecture
+
+4. **Accessibility**
+   - Alt text quality
+   - Link text descriptiveness
+   - Content structure
+   - Language clarity
+
+## Content Metrics
+- Headers found: ${pageAnalysis.semantic?.headers || 0}
+- Sections: ${pageAnalysis.semantic?.sections || 0}
+- Lists: ${pageAnalysis.semantic?.lists || 0}
+- Total text length: ${pageAnalysis.structure?.textLength || 0} characters
+
+${context.goal ? `\n## Review Goal\n${context.goal}` : ''}
+
+## Expected Output
+- Content quality score
+- Improvement recommendations
+- SEO optimization suggestions
+- Accessibility enhancements`
+                },
+                
+                'seo-analysis': {
+                    template: `# SEO Analysis Request
+
+## Target URL
+${url}
+
+## Page Metadata
+${JSON.stringify(pageAnalysis.meta, null, 2)}
+
+## SEO Audit Checklist
+
+1. **Technical SEO**
+   - Page load speed
+   - Mobile responsiveness
+   - SSL certificate
+   - XML sitemap presence
+   - Robots.txt configuration
+
+2. **On-Page SEO**
+   - Title tag optimization
+   - Meta descriptions
+   - Header tags usage (${pageAnalysis.semantic?.headers || 0} found)
+   - Image alt attributes
+   - Internal linking structure
+
+3. **Content SEO**
+   - Keyword density
+   - Content length and quality
+   - Semantic HTML usage
+   - Schema markup implementation
+
+4. **User Experience Signals**
+   - Core Web Vitals
+   - Mobile usability
+   - Safe browsing
+   - HTTPS security
+
+${context.goal ? `\n## SEO Goal\n${context.goal}` : ''}
+${context.focusAreas?.length ? `\n## Focus Keywords\n${context.focusAreas.map(k => `- ${k}`).join('\n')}` : ''}
+
+## Deliverables
+- SEO score (1-100)
+- Critical issues affecting ranking
+- Optimization opportunities
+- Competitor comparison insights`
+                },
+                
+                'custom': {
+                    template: `# Custom Analysis Request
+
+## Target
+URL: ${url}
+${selector ? `Element: ${selector}` : 'Full Page'}
+
+## Page Data
+${JSON.stringify(pageAnalysis, null, 2)}
+
+${context.goal ? `## Analysis Goal\n${context.goal}` : '## Goal\nPlease analyze this page and provide insights.'}
+
+${context.constraints?.length ? `\n## Constraints\n${context.constraints.map(c => `- ${c}`).join('\n')}` : ''}
+
+${context.focusAreas?.length ? `\n## Focus Areas\n${context.focusAreas.map(a => `- ${a}`).join('\n')}` : ''}
+
+## Analysis Requirements
+Based on the page structure and provided context, please:
+1. Identify key patterns and issues
+2. Provide actionable recommendations
+3. Prioritize findings by impact
+4. Suggest implementation approaches`
+                }
+            };
+            
+            const selectedTemplate = promptTemplates[promptType];
+            const generatedPrompt = selectedTemplate.template;
+            
+            // Форматирование вывода
+            let output;
+            if (context.outputFormat === 'json') {
+                output = {
+                    prompt: generatedPrompt,
+                    metadata: {
+                        url,
+                        selector,
+                        promptType,
+                        timestamp: new Date().toISOString(),
+                        pageAnalysis: includePageData ? pageAnalysis : null
+                    }
+                };
+            } else {
+                output = generatedPrompt;
+            }
+            
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: context.outputFormat === 'json' ? 
+                              JSON.stringify(output, null, 2) : 
+                              output
+                    }
+                ]
+            };
             
         } finally {
             await page.close().catch(() => {});
