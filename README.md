@@ -129,25 +129,58 @@ mcp__chrome__getAccessibility(url)
 
 ## Настройка для других AI агентов
 
-### Cursor
+### Cursor IDE
 
-Добавьте в настройки Cursor (`.cursor-config.json` или через UI):
+#### Способ 1: Через настройки интерфейса (рекомендуется)
+
+1. Откройте Cursor IDE
+2. Перейдите в **Settings** → **Features** → **MCP**
+3. Нажмите **Add Server** и заполните поля:
+   - **Name**: `devchrome`
+   - **Command**: `npx`
+   - **Arguments**: `devchrome-mcp`
+   - **Protocol**: `stdio` (по умолчанию)
+4. Нажмите **Save** и перезапустите Cursor
+
+#### Способ 2: Через конфигурационный файл
+
+Добавьте в файл настроек Cursor:
+- **Windows**: `%APPDATA%\Cursor\User\mcp.json`
+- **macOS**: `~/Library/Application Support/Cursor/User/mcp.json`
+- **Linux**: `~/.config/Cursor/User/mcp.json`
 
 ```json
 {
-  "mcp": {
-    "servers": {
-      "chrome": {
-        "command": "npx",
-        "args": ["devchrome-mcp"],
-        "env": {
-          "PORT": "3058"
-        }
-      }
+  "mcpServers": {
+    "devchrome": {
+      "command": "npx",
+      "args": ["devchrome-mcp"],
+      "env": {}
     }
   }
 }
 ```
+
+#### Способ 3: Локальная установка для разработки
+
+```json
+{
+  "mcpServers": {
+    "devchrome": {
+      "command": "node",
+      "args": ["C:/path/to/devchrome-mcp/mcp_server.js"],
+      "env": {}
+    }
+  }
+}
+```
+
+#### Проверка подключения в Cursor
+
+1. Откройте новый чат в Cursor
+2. В правом нижнем углу должна появиться иконка MCP
+3. Нажмите на нее и убедитесь, что `devchrome` в списке активных серверов
+4. Попробуйте использовать команду: спросите у ассистента "Use devchrome to ping test"
 
 ### Другие MCP-совместимые агенты
 
