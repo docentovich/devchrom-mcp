@@ -38,7 +38,7 @@ async function createPage() {
 const server = new McpServer(
     { 
         name: 'devchrome-mcp', 
-        version: '1.7.0',
+        version: '1.8.0',
         description: `
 🎨 PROFESSIONAL PIXEL-PERFECT DESIGN VALIDATION SYSTEM 🎨
 
@@ -5824,6 +5824,257 @@ server.registerTool(
             return {
                 content: [{ type: 'text', text: `❌ Error: ${error.message}` }]
             };
+        }
+    }
+);
+
+/* ================== ADVANCED FIGMA AUTOMATION TOOLS ================== */
+
+/* extractFigmaTexts - извлечение всех текстов с их стилями */
+server.registerTool(
+    'extractFigmaTexts',
+    {
+        title: 'Extract All Texts from Figma',
+        description: 'Extract all text content with styles from Figma design. Returns structured text data with typography settings.',
+        inputSchema: {
+            figmaToken: z.string().optional().describe('Figma API token (optional if FIGMA_TOKEN env var is set)'),
+            fileKey: z.string().describe('Figma file key'),
+            nodeId: z.string().describe('Figma node ID to extract texts from')
+        }
+    },
+    async ({ figmaToken, fileKey, nodeId }) => {
+        const token = figmaToken || FIGMA_TOKEN;
+        if (!token) {
+            throw new McpError(ErrorCode.InvalidRequest, 'Figma token is required');
+        }
+
+        try {
+            // Get file data
+            const fileResponse = await fetch(`https://api.figma.com/v1/files/${fileKey}/nodes?ids=${nodeId}`, {
+                headers: { 'X-Figma-Token': token }
+            });
+
+            if (!fileResponse.ok) {
+                const error = await fileResponse.text();
+                throw new McpError(ErrorCode.InternalError, `Figma API error: ${fileResponse.status} - ${error}`);
+            }
+
+            const fileData = await fileResponse.json();
+            const nodes = fileData.nodes;
+            
+            // Extract text recursively
+            const texts = [];
+            
+            function extractTexts(node, path = '') {
+                if (node.type === 'TEXT' && node.characters) {
+                    const style = node.style || {};
+                    texts.push({
+                        id: node.id,
+                        content: node.characters,
+                        path: path || node.name,
+                        style: {
+                            fontFamily: style.fontFamily || node.style?.fontFamily,
+                            fontSize: style.fontSize || node.style?.fontSize,
+                            fontWeight: style.fontWeight || node.style?.fontWeight,
+                            lineHeight: style.lineHeightPx || node.style?.lineHeightPx,
+                            letterSpacing: style.letterSpacing || node.style?.letterSpacing,
+                            textAlign: style.textAlignHorizontal || node.style?.textAlignHorizontal,
+                            color: node.fills?.[0]?.color ? {
+                                r: Math.round(node.fills[0].color.r * 255),
+                                g: Math.round(node.fills[0].color.g * 255),
+                                b: Math.round(node.fills[0].color.b * 255),
+                                a: node.fills[0].color.a || 1
+                            } : null
+                        },
+                        position: node.absoluteBoundingBox || null
+                    });
+                }
+                
+                if (node.children) {
+                    for (const child of node.children) {
+                        const childPath = path ? `${path} > ${child.name}` : child.name;
+                        extractTexts(child, childPath);
+                    }
+                }
+            }
+            
+            // Process all nodes
+            for (const nodeId in nodes) {
+                const nodeData = nodes[nodeId];
+                if (nodeData.document) {
+                    extractTexts(nodeData.document);
+                }
+            }
+            
+            return {
+                content: [{
+                    type: 'text',
+                    text: JSON.stringify({
+                        summary: {
+                            totalTexts: texts.length,
+                            uniqueFonts: [...new Set(texts.map(t => t.style.fontFamily).filter(Boolean))],
+                            uniqueFontSizes: [...new Set(texts.map(t => t.style.fontSize).filter(Boolean))].sort((a, b) => a - b),
+                            uniqueColors: [...new Set(texts.map(t => t.style.color ? `rgb(${t.style.color.r},${t.style.color.g},${t.style.color.b})` : null).filter(Boolean))]
+                        },
+                        texts: texts
+                    }, null, 2)
+                }]
+            };
+            
+        } catch (error) {
+            if (error instanceof McpError) throw error;
+            throw new McpError(ErrorCode.InternalError, `Failed to extract texts: ${error.message}`);
+        }
+    }
+);
+
+/* batchCompareFigmaFrames - пакетное сравнение множества элементов */
+server.registerTool(
+    'batchCompareFigmaFrames',
+    {
+        title: 'Batch Compare Figma Frames',
+        description: 'Compare multiple Figma frames with corresponding HTML elements in one operation.',
+        inputSchema: {
+            figmaToken: z.string().optional().describe('Figma API token'),
+            fileKey: z.string().describe('Figma file key'),
+            url: z.string().describe('Web page URL to compare'),
+            comparisons: z.array(z.object({
+                figmaNodeId: z.string().describe('Figma node ID'),
+                selector: z.string().describe('CSS selector for HTML element'),
+                tolerance: z.number().min(0).max(1).optional().describe('Tolerance threshold (0-1)')
+            })).describe('Array of comparison pairs')
+        }
+    },
+    async ({ figmaToken, fileKey, url, comparisons }) => {
+        const token = figmaToken || FIGMA_TOKEN;
+        if (!token) {
+            throw new McpError(ErrorCode.InvalidRequest, 'Figma token is required');
+        }
+
+        const { page, client } = await createPage();
+        
+        try {
+            await page.goto(url, { waitUntil: 'networkidle2' });
+            
+            const results = [];
+            let passedCount = 0;
+            
+            for (const comparison of comparisons) {
+                try {
+                    // Get Figma image
+                    const exportResponse = await fetch(
+                        `https://api.figma.com/v1/images/${fileKey}?ids=${comparison.figmaNodeId}&scale=2&format=png`,
+                        { headers: { 'X-Figma-Token': token } }
+                    );
+                    
+                    if (!exportResponse.ok) {
+                        results.push({
+                            figmaNodeId: comparison.figmaNodeId,
+                            selector: comparison.selector,
+                            error: 'Failed to export Figma frame',
+                            passed: false
+                        });
+                        continue;
+                    }
+                    
+                    const exportData = await exportResponse.json();
+                    const imageUrl = exportData.images?.[comparison.figmaNodeId];
+                    
+                    if (!imageUrl) {
+                        results.push({
+                            figmaNodeId: comparison.figmaNodeId,
+                            selector: comparison.selector,
+                            error: 'No image URL from Figma',
+                            passed: false
+                        });
+                        continue;
+                    }
+                    
+                    // Download Figma image
+                    const figmaImageResponse = await fetch(imageUrl);
+                    const figmaBuffer = await figmaImageResponse.buffer();
+                    
+                    // Screenshot HTML element
+                    const element = await page.$(comparison.selector);
+                    if (!element) {
+                        results.push({
+                            figmaNodeId: comparison.figmaNodeId,
+                            selector: comparison.selector,
+                            error: `Element not found: ${comparison.selector}`,
+                            passed: false
+                        });
+                        continue;
+                    }
+                    
+                    const elementBuffer = await element.screenshot();
+                    
+                    // Compare images
+                    const [figmaImg, elementImg] = await Promise.all([
+                        Jimp.read(figmaBuffer),
+                        Jimp.read(elementBuffer)
+                    ]);
+                    
+                    // Resize to same dimensions
+                    const width = Math.max(figmaImg.bitmap.width, elementImg.bitmap.width);
+                    const height = Math.max(figmaImg.bitmap.height, elementImg.bitmap.height);
+                    
+                    figmaImg.resize(width, height);
+                    elementImg.resize(width, height);
+                    
+                    // Calculate difference
+                    const figmaData = new Uint8ClampedArray(figmaImg.bitmap.data);
+                    const elementData = new Uint8ClampedArray(elementImg.bitmap.data);
+                    const diffData = new Uint8ClampedArray(width * height * 4);
+                    
+                    const diffPixels = pixelmatch(figmaData, elementData, diffData, width, height, {
+                        threshold: comparison.tolerance || 0.1
+                    });
+                    
+                    const matchScore = 1 - (diffPixels / (width * height));
+                    const passed = matchScore >= (1 - (comparison.tolerance || 0.05));
+                    
+                    if (passed) passedCount++;
+                    
+                    results.push({
+                        figmaNodeId: comparison.figmaNodeId,
+                        selector: comparison.selector,
+                        matchScore: Math.round(matchScore * 1000) / 10,
+                        differencePixels: diffPixels,
+                        dimensions: { width, height },
+                        passed: passed
+                    });
+                    
+                } catch (error) {
+                    results.push({
+                        figmaNodeId: comparison.figmaNodeId,
+                        selector: comparison.selector,
+                        error: error.message,
+                        passed: false
+                    });
+                }
+            }
+            
+            const summary = {
+                total: comparisons.length,
+                passed: passedCount,
+                failed: comparisons.length - passedCount,
+                passRate: Math.round((passedCount / comparisons.length) * 100),
+                averageScore: results.filter(r => r.matchScore).length > 0 ?
+                    Math.round(
+                        results.filter(r => r.matchScore).reduce((sum, r) => sum + r.matchScore, 0) / 
+                        results.filter(r => r.matchScore).length * 10
+                    ) / 10 : 0
+            };
+            
+            return {
+                content: [{
+                    type: 'text',
+                    text: JSON.stringify({ results, summary }, null, 2)
+                }]
+            };
+            
+        } finally {
+            await page.close().catch(() => {});
         }
     }
 );
