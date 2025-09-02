@@ -1,6 +1,6 @@
 {
   "name": "devchrome-mcp",
-  "version": "1.4.0",
+  "version": "1.6.0",
   "description": "MCP (Model Context Protocol) сервер для работы с браузером через Puppeteer",
   "main": "mcp_server.js",
   "type": "module",
@@ -31,12 +31,12 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/devchrome-mcp.git"
+    "url": "git+https://github.com/docentovich/devchrom-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/devchrome-mcp/issues"
+    "url": "https://github.com/docentovich/devchrom-mcp/issues"
   },
-  "homepage": "https://github.com/yourusername/devchrome-mcp#readme",
+  "homepage": "https://github.com/docentovich/devchrom-mcp#readme",
   "engines": {
     "node": ">=18.0.0"
   },
