@@ -1,7 +1,23 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run validate:*)"
+      "Bash(npm run validate:*)",
+      "Bash(node:*)",
+      "Bash(claude mcp:*)",
+      "Bash(set FIGMA_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)",
+      "mcp__devchrome__ping",
+      "mcp__devchrome__getFigmaSpecs",
+      "Bash(set FIGMA_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)",
+      "mcp__devchrome__getFigmaFrame",
+      "Bash(grep:*)",
+      "Bash(timeout:*)",
+      "mcp__devchrome__getElement",
+      "mcp__devchrome__getViewport",
+      "mcp__devchrome__screenshot",
+      "mcp__devchrome__getElementComputedCss",
+      "mcp__devchrome__hover",
+      "mcp__devchrome__click",
+      "mcp__devchrome__generateAIPrompt"
     ],
     "deny": [],
     "ask": []

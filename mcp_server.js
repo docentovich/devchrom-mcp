@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import puppeteer from 'puppeteer';
 import { z } from 'zod';
 import fs from 'fs';
@@ -12,6 +13,7 @@ import fetch from 'node-fetch';
 /* -------------------- Configuration -------------------- */
 // Figma token from environment variable (can be set in MCP config)
 const FIGMA_TOKEN = process.env.FIGMA_TOKEN || null;
+
 
 /* -------------------- Puppeteer: один браузер на всё приложение -------------------- */
 let browserPromise = null;
@@ -36,11 +38,11 @@ async function createPage() {
 const server = new McpServer(
     { 
         name: 'devchrome-mcp', 
-        version: '1.4.0',
+        version: '1.7.0',
         description: `
 🎨 PROFESSIONAL PIXEL-PERFECT DESIGN VALIDATION SYSTEM 🎨
 
-This MCP server provides 25+ specialized tools for comprehensive frontend design validation, 
+This MCP server provides 37+ specialized tools for comprehensive frontend design validation, 
 pixel-perfect comparison, and Figma-to-browser analysis. Designed for AI agents working 
 with design systems, CSS modules, and visual regression testing.
 
@@ -168,7 +170,7 @@ async function resolveNodeId(client, selector) {
     if (!nodeId) {
         if (!selector || String(selector).trim().length === 0) {
             // крайне маловероятно, что <body> не найдётся, но на всякий случай:
-            throw server.error.NotFound('<body> element not found on the page');
+            throw new Error( '<body> element not found on the page');
         }
         
         // Улучшенная диагностика ошибок
@@ -184,7 +186,7 @@ async function resolveNodeId(client, selector) {
             errorMessage += `No similar elements found. The page might not contain the expected content.`;
         }
         
-        throw server.error.NotFound(errorMessage);
+        throw new Error( errorMessage);
     }
     return nodeId;
 }
@@ -444,7 +446,7 @@ server.registerTool(
                         errorMessage += `\n\nSimilar elements found:\n${suggestions.map(s => `  - ${s}`).join('\n')}`;
                     }
                     
-                    throw server.error.NotFound(errorMessage);
+                    throw new Error( errorMessage);
                 }
 
                 return {
@@ -458,7 +460,7 @@ server.registerTool(
                 if (error.message && (error.message.includes('No elements found') || error.message.includes('NotFound'))) {
                     throw error;
                 }
-                throw server.error.InvalidRequest(`Invalid CSS selector: "${selector}". Error: ${error.message}`);
+                throw new Error( `Invalid CSS selector: "${selector}". Error: ${error.message}`);
             }
         } finally {
             await page.close().catch(() => {});
@@ -585,7 +587,7 @@ transformations like .someClass → Button_someClass_x7k9p2.
                 : `CSS module class "${className}"`;
             const triedPatterns = selectors.join(', ');
             
-            throw server.error.NotFound(`${searchContext} not found. Tried patterns: ${triedPatterns}`);
+            throw new Error( `${searchContext} not found. Tried patterns: ${triedPatterns}`);
             
         } finally {
             await page.close().catch(() => {});
@@ -657,7 +659,7 @@ server.registerTool(
                     : `CSS module class "${className}"`;
                 const triedPatterns = selectors.join(', ');
                 
-                throw server.error.NotFound(`${searchContext} not found. Tried patterns: ${triedPatterns}`);
+                throw new Error( `${searchContext} not found. Tried patterns: ${triedPatterns}`);
             }
 
             const elements = [];
@@ -712,7 +714,7 @@ server.registerTool(
                 nodeId: root.nodeId
             });
             if (!nodeId) {
-                throw server.error.NotFound(`Selector not found: ${selector}`);
+                throw new Error( `Selector not found: ${selector}`);
             }
 
             const boxModel = await client.send('DOM.getBoxModel', { nodeId });
@@ -728,7 +730,7 @@ server.registerTool(
             }, selector);
 
             if (!metrics) {
-                throw server.error.NotFound(`Selector not found (render): ${selector}`);
+                throw new Error( `Selector not found (render): ${selector}`);
             }
 
             return {
@@ -780,7 +782,7 @@ server.registerTool(
             );
 
             if (parents === null) {
-                throw server.error.NotFound(`Selector not found: ${selector}`);
+                throw new Error( `Selector not found: ${selector}`);
             }
 
             return {
@@ -837,7 +839,7 @@ server.registerTool(
             }, selector, dict);
 
             if (!ok) {
-                throw server.error.NotFound(`Selector not found: ${selector}`);
+                throw new Error( `Selector not found: ${selector}`);
             }
 
             return { content: [{ type: 'text', text: 'Styles applied' }] };
@@ -878,12 +880,12 @@ server.registerTool(
                     errorMessage += `Similar elements found:\n${suggestions.join('\n')}`;
                 }
                 
-                throw server.error.NotFound(errorMessage);
+                throw new Error( errorMessage);
             }
 
             const box = await el.boundingBox();
             if (!box) {
-                throw server.error.NotFound(
+                throw new Error( 
                     `Element is not visible or has no bounding box: ${selector}`
                 );
             }
@@ -997,13 +999,13 @@ server.registerTool(
             
             const element = await page.$(selector);
             if (!element) {
-                throw server.error.NotFound(`Selector not found: ${selector}`);
+                throw new Error( `Selector not found: ${selector}`);
             }
             
             await element.hover();
             
             // Небольшая задержка для срабатывания hover эффектов
-            await page.waitForTimeout(100);
+            await new Promise(resolve => setTimeout(resolve, 100));
             
             return {
                 content: [{ type: 'text', text: `Hovered over element: ${selector}` }]
@@ -1032,13 +1034,13 @@ server.registerTool(
             
             const element = await page.$(selector);
             if (!element) {
-                throw server.error.NotFound(`Selector not found: ${selector}`);
+                throw new Error( `Selector not found: ${selector}`);
             }
             
             await element.click();
             
             // Ожидаем возможных изменений после клика
-            await page.waitForTimeout(200);
+            await new Promise(resolve => setTimeout(resolve, 200));
             
             return {
                 content: [{ type: 'text', text: `Clicked element: ${selector}` }]
@@ -1068,13 +1070,13 @@ server.registerTool(
             
             const element = await page.$(selector);
             if (!element) {
-                throw server.error.NotFound(`Selector not found: ${selector}`);
+                throw new Error( `Selector not found: ${selector}`);
             }
             
             await element.scrollIntoView({ behavior });
             
             // Ожидаем завершения скролла
-            await page.waitForTimeout(300);
+            await new Promise(resolve => setTimeout(resolve, 300));
             
             const position = await page.evaluate(() => ({ 
                 x: window.scrollX, 
@@ -1384,8 +1386,8 @@ server.registerTool(
                 page2.$(selector)
             ]);
             
-            if (!element1) throw server.error.NotFound(`Selector not found on first page: ${selector}`);
-            if (!element2) throw server.error.NotFound(`Selector not found on second page: ${selector}`);
+            if (!element1) throw new Error( `Selector not found on first page: ${selector}`);
+            if (!element2) throw new Error( `Selector not found on second page: ${selector}`);
             
             // Получаем размеры
             const [box1, box2] = await Promise.all([
@@ -1394,7 +1396,7 @@ server.registerTool(
             ]);
             
             if (!box1 || !box2) {
-                throw server.error.NotFound('Elements are not visible or have no bounding box');
+                throw new Error( 'Elements are not visible or have no bounding box');
             }
             
             // Создаем одинаковые области для сравнения
@@ -1549,7 +1551,7 @@ server.registerTool(
             }, selector);
             
             if (!measurements) {
-                throw server.error.NotFound(`Selector not found: ${selector}`);
+                throw new Error( `Selector not found: ${selector}`);
             }
 
             return {
@@ -1684,8 +1686,8 @@ Uses advanced computer vision techniques to identify even 1-2% differences in de
                 page2.$(selector)
             ]);
             
-            if (!element1) throw server.error.NotFound(`Selector not found on first page: ${selector}`);
-            if (!element2) throw server.error.NotFound(`Selector not found on second page: ${selector}`);
+            if (!element1) throw new Error( `Selector not found on first page: ${selector}`);
+            if (!element2) throw new Error( `Selector not found on second page: ${selector}`);
             
             const [box1, box2] = await Promise.all([
                 element1.boundingBox(),
@@ -1693,7 +1695,7 @@ Uses advanced computer vision techniques to identify even 1-2% differences in de
             ]);
             
             if (!box1 || !box2) {
-                throw server.error.NotFound('Elements are not visible or have no bounding box');
+                throw new Error( 'Elements are not visible or have no bounding box');
             }
             
             const maxWidth = Math.max(box1.width, box2.width);
@@ -1845,8 +1847,8 @@ server.registerTool(
                 page2.$(selector)
             ]);
             
-            if (!element1) throw server.error.NotFound(`Selector not found on first page: ${selector}`);
-            if (!element2) throw server.error.NotFound(`Selector not found on second page: ${selector}`);
+            if (!element1) throw new Error( `Selector not found on first page: ${selector}`);
+            if (!element2) throw new Error( `Selector not found on second page: ${selector}`);
             
             const [buffer1, buffer2] = await Promise.all([
                 element1.screenshot(),
@@ -1980,7 +1982,7 @@ server.registerTool(
 /* Утилита для работы с Figma API */
 async function fetchFigmaAPI(endpoint, figmaToken) {
     if (!figmaToken) {
-        throw new Error('Figma token is required. Get it from https://www.figma.com/developers/api#access-tokens');
+        throw new McpError(ErrorCode.InvalidRequest, 'Figma token is required. Get it from https://www.figma.com/developers/api#access-tokens');
     }
     
     const response = await fetch(`https://api.figma.com/v1/${endpoint}`, {
@@ -1991,7 +1993,7 @@ async function fetchFigmaAPI(endpoint, figmaToken) {
     
     if (!response.ok) {
         const error = await response.text();
-        throw new Error(`Figma API error: ${response.status} - ${error}`);
+        throw new McpError(ErrorCode.InternalError, `Figma API error: ${response.status} - ${error}`);
     }
     
     return response.json();
@@ -2015,7 +2017,7 @@ server.registerTool(
         // Use provided token or fall back to environment variable
         const token = figmaToken || FIGMA_TOKEN;
         if (!token) {
-            throw server.error.InvalidInput('Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
+            throw new McpError(ErrorCode.InvalidRequest, 'Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
         }
         try {
             // Получаем URL для экспорта
@@ -2025,7 +2027,7 @@ server.registerTool(
             );
             
             if (!exportData.images || !exportData.images[nodeId]) {
-                throw server.error.NotFound(`Failed to export node ${nodeId} from file ${fileKey}`);
+                throw new McpError(ErrorCode.InvalidRequest, `Failed to export node ${nodeId} from file ${fileKey}`);
             }
             
             const imageUrl = exportData.images[nodeId];
@@ -2033,7 +2035,7 @@ server.registerTool(
             // Скачиваем изображение
             const imageResponse = await fetch(imageUrl);
             if (!imageResponse.ok) {
-                throw new Error(`Failed to download image: ${imageResponse.status}`);
+                throw new McpError(ErrorCode.InternalError, `Failed to download image: ${imageResponse.status}`);
             }
             
             const imageBuffer = await imageResponse.buffer();
@@ -2088,7 +2090,10 @@ server.registerTool(
             };
             
         } catch (error) {
-            throw server.error.InvalidRequest(`Figma API error: ${error.message}`);
+            if (error instanceof McpError) {
+                throw error;
+            }
+            throw new McpError(ErrorCode.InternalError, `Figma API error: ${error.message}`);
         }
     }
 );
@@ -2168,7 +2173,7 @@ Eliminates guesswork by providing direct, automated design-vs-reality comparison
         // Use provided token or fall back to environment variable
         const token = figmaToken || FIGMA_TOKEN;
         if (!token) {
-            throw server.error.InvalidInput('Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
+            throw new McpError(ErrorCode.InvalidRequest, 'Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
         }
         const { page } = await createPage();
         
@@ -2180,7 +2185,7 @@ Eliminates guesswork by providing direct, automated design-vs-reality comparison
             );
             
             if (!exportData.images || !exportData.images[nodeId]) {
-                throw server.error.NotFound(`Failed to export Figma node ${nodeId}`);
+                throw new Error( `Failed to export Figma node ${nodeId}`);
             }
             
             const figmaImageUrl = exportData.images[nodeId];
@@ -2192,7 +2197,7 @@ Eliminates guesswork by providing direct, automated design-vs-reality comparison
             const element = await page.$(selector);
             
             if (!element) {
-                throw server.error.NotFound(`Selector not found: ${selector}`);
+                throw new Error( `Selector not found: ${selector}`);
             }
             
             const pageBuffer = await element.screenshot();
@@ -2285,7 +2290,7 @@ server.registerTool(
         // Use provided token or fall back to environment variable
         const token = figmaToken || FIGMA_TOKEN;
         if (!token) {
-            throw server.error.InvalidInput('Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
+            throw new McpError(ErrorCode.InvalidRequest, 'Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
         }
         try {
             // Получаем данные файла
@@ -2315,7 +2320,7 @@ server.registerTool(
             }
             
             if (!nodeData) {
-                throw server.error.NotFound(`Node ${nodeId} not found in Figma file`);
+                throw new Error( `Node ${nodeId} not found in Figma file`);
             }
             
             const { node, path } = nodeData;
@@ -2432,7 +2437,7 @@ server.registerTool(
             };
             
         } catch (error) {
-            throw server.error.InvalidRequest(`Figma specs error: ${error.message}`);
+            throw new Error( `Figma specs error: ${error.message}`);
         }
     }
 );
@@ -2497,8 +2502,8 @@ server.registerTool(
                 getTypographyData(page2, selector)
             ]);
             
-            if (typography1.length === 0) throw server.error.NotFound(`No text elements found for selector "${selector}" on first page`);
-            if (typography2.length === 0) throw server.error.NotFound(`No text elements found for selector "${selector}" on second page`);
+            if (typography1.length === 0) throw new Error( `No text elements found for selector "${selector}" on first page`);
+            if (typography2.length === 0) throw new Error( `No text elements found for selector "${selector}" on second page`);
             
             // Сравниваем типографику
             const comparison = {
@@ -2692,8 +2697,8 @@ server.registerTool(
                 getSpacingData(page2, selector)
             ]);
             
-            if (spacing1.length === 0) throw server.error.NotFound(`No elements found for selector "${selector}" on first page`);
-            if (spacing2.length === 0) throw server.error.NotFound(`No elements found for selector "${selector}" on second page`);
+            if (spacing1.length === 0) throw new Error( `No elements found for selector "${selector}" on first page`);
+            if (spacing2.length === 0) throw new Error( `No elements found for selector "${selector}" on second page`);
             
             // Сравниваем spacing
             const comparison = {
@@ -2930,8 +2935,8 @@ server.registerTool(
                 getLayoutData(page2, selector, includeChildren)
             ]);
             
-            if (layout1.length === 0) throw server.error.NotFound(`No elements found for selector "${selector}" on first page`);
-            if (layout2.length === 0) throw server.error.NotFound(`No elements found for selector "${selector}" on second page`);
+            if (layout1.length === 0) throw new Error( `No elements found for selector "${selector}" on first page`);
+            if (layout2.length === 0) throw new Error( `No elements found for selector "${selector}" on second page`);
             
             // Сравниваем layout
             const comparison = {
@@ -3245,8 +3250,8 @@ The tool suggests tolerance adjustments based on failure patterns:
                 getComparisonData(page2, selector)
             ]);
             
-            if (data1.length === 0) throw server.error.NotFound(`No elements found for selector "${selector}" on first page`);
-            if (data2.length === 0) throw server.error.NotFound(`No elements found for selector "${selector}" on second page`);
+            if (data1.length === 0) throw new Error( `No elements found for selector "${selector}" on first page`);
+            if (data2.length === 0) throw new Error( `No elements found for selector "${selector}" on second page`);
             
             // Функции сравнения с допусками
             function compareColor(color1, color2, tolerance) {
@@ -3528,7 +3533,7 @@ server.registerTool(
             }, selector);
             
             if (elementData.length === 0) {
-                throw server.error.NotFound(`No elements found for selector "${selector}"`);
+                throw new Error( `No elements found for selector "${selector}"`);
             }
             
             // Функции валидации
@@ -3876,7 +3881,7 @@ Perfect for ensuring proper HTML semantics, accessibility structure, and compone
             }, selector, includeAttributes, maxDepth);
             
             if (!structure) {
-                throw server.error.NotFound(`Selector "${selector}" not found or analysis failed`);
+                throw new Error( `Selector "${selector}" not found or analysis failed`);
             }
             
             // Анализ структуры
@@ -4077,8 +4082,8 @@ Ensures components are properly composed and follow best practices.
                 getHierarchy(page2, selector)
             ]);
             
-            if (!hierarchy1) throw server.error.NotFound(`Selector "${selector}" not found on first page`);
-            if (!hierarchy2) throw server.error.NotFound(`Selector "${selector}" not found on second page`);
+            if (!hierarchy1) throw new Error( `Selector "${selector}" not found on first page`);
+            if (!hierarchy2) throw new Error( `Selector "${selector}" not found on second page`);
             
             // Сравниваем иерархии
             function compareHierarchies(node1, node2, path = '') {
@@ -4340,7 +4345,7 @@ Ensures buttons work, forms submit, links navigate, and accessibility is maintai
             }, selector, testInteractions, includeKeyboard);
             
             if (!analysis) {
-                throw server.error.NotFound(`Selector "${selector}" not found`);
+                throw new Error( `Selector "${selector}" not found`);
             }
             
             // Анализ результатов
@@ -4940,7 +4945,7 @@ Perfect for design reviews, client feedback, and developer guidance.
             
             const element = await page.$(selector);
             if (!element) {
-                throw server.error.NotFound(`Selector "${selector}" not found`);
+                throw new Error( `Selector "${selector}" not found`);
             }
             
             // Получаем детальную информацию об элементе
@@ -5062,7 +5067,7 @@ Perfect for design reviews, client feedback, and developer guidance.
             }, selector, annotationTypes);
             
             if (!elementInfo) {
-                throw server.error.NotFound('Element analysis failed');
+                throw new Error( 'Element analysis failed');
             }
             
             // Делаем скриншот элемента
@@ -5230,7 +5235,7 @@ Creates detailed, structured prompts that help AI understand and work with web p
                 }, selector);
                 
                 if (!pageAnalysis) {
-                    throw server.error.NotFound('Element not found or analysis failed');
+                    throw new Error( 'Element not found or analysis failed');
                 }
             }
             
@@ -5656,6 +5661,169 @@ Based on the page structure and provided context, please:
             
         } finally {
             await page.close().catch(() => {});
+        }
+    }
+);
+
+/* ================== NEW WORKING FIGMA TOOLS ================== */
+/* These tools use the proven working pattern from get_figma_image.js */
+
+/* exportFigmaFrame - working Figma frame export */
+server.registerTool(
+    'exportFigmaFrame',
+    {
+        title: 'Export Figma Frame (Working)',
+        description: 'Export and download a Figma frame as PNG image using proven working API pattern. Requires Figma API token and file/node IDs from Figma URLs.',
+        inputSchema: {
+            figmaToken: z.string().optional().describe('Figma API token (optional if FIGMA_TOKEN env var is set)'),
+            fileKey: z.string().describe('Figma file key (from URL: figma.com/file/FILE_KEY/...)'),
+            nodeId: z.string().describe('Figma node ID (frame/component ID)'),
+            scale: z.number().min(0.1).max(4).optional().describe('Export scale (0.1-4, default: 2)'),
+            format: z.enum(['png', 'jpg', 'svg']).optional().describe('Export format (default: png)')
+        }
+    },
+    async ({ figmaToken, fileKey, nodeId, scale = 2, format = 'png' }) => {
+        const token = figmaToken || FIGMA_TOKEN;
+        if (!token) {
+            throw new McpError(ErrorCode.InvalidRequest, 'Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
+        }
+
+        try {
+            console.log('Getting image export URL from Figma...');
+            
+            // Use the proven working pattern from get_figma_image.js
+            const exportResponse = await fetch(`https://api.figma.com/v1/images/${fileKey}?ids=${nodeId}&scale=${scale}&format=${format}`, {
+                headers: {
+                    'X-Figma-Token': token
+                }
+            });
+            
+            if (!exportResponse.ok) {
+                const error = await exportResponse.text();
+                throw new McpError(ErrorCode.InternalError, `Figma API error: ${exportResponse.status} - ${error}`);
+            }
+            
+            const exportData = await exportResponse.json();
+            
+            if (!exportData.images || !exportData.images[nodeId]) {
+                throw new McpError(ErrorCode.InvalidRequest, `Failed to get export URL for node ${nodeId}`);
+            }
+            
+            const imageUrl = exportData.images[nodeId];
+            console.log('Got image URL:', imageUrl);
+            
+            // Download the image
+            console.log('Downloading image...');
+            const imageResponse = await fetch(imageUrl);
+            
+            if (!imageResponse.ok) {
+                throw new McpError(ErrorCode.InternalError, `Failed to download image: ${imageResponse.status}`);
+            }
+            
+            const imageBuffer = await imageResponse.buffer();
+            
+            // Save to project root like the working example
+            const filename = `figma_frame_${nodeId.replace(':', '-')}.png`;
+            fs.writeFileSync(filename, imageBuffer);
+            
+            const result = {
+                success: true,
+                filename: filename,
+                fileSize: imageBuffer.length,
+                nodeId: nodeId,
+                imageUrl: imageUrl,
+                message: `✅ Image saved as: ${filename}`,
+                sizeInfo: `📏 Image size: ${imageBuffer.length} bytes`
+            };
+            
+            return {
+                content: [
+                    { type: 'text', text: JSON.stringify(result, null, 2) },
+                    { 
+                        type: 'image', 
+                        data: imageBuffer.toString('base64'), 
+                        mimeType: `image/${format}` 
+                    }
+                ]
+            };
+            
+        } catch (error) {
+            if (error instanceof McpError) {
+                throw error;
+            }
+            throw new McpError(ErrorCode.InternalError, `❌ Error: ${error.message}`);
+        }
+    }
+);
+
+/* downloadFigmaImage - minimal working Figma tool */
+server.registerTool(
+    'downloadFigmaImage',
+    {
+        title: 'Download Figma Image (Simple)',
+        description: 'Simple Figma image download using proven working pattern. Gets PNG export of specified frame.',
+        inputSchema: {
+            figmaToken: z.string().optional().describe('Figma API token (optional if FIGMA_TOKEN env var is set)'),
+            fileKey: z.string().describe('Figma file key from URL'),
+            nodeId: z.string().describe('Figma frame/component ID')
+        }
+    },
+    async ({ figmaToken, fileKey, nodeId }) => {
+        const FIGMA_TOKEN_TO_USE = figmaToken || FIGMA_TOKEN;
+        
+        try {
+            // Exactly like get_figma_image.js
+            const exportResponse = await fetch(`https://api.figma.com/v1/images/${fileKey}?ids=${nodeId}&scale=2&format=png`, {
+                headers: {
+                    'X-Figma-Token': FIGMA_TOKEN_TO_USE
+                }
+            });
+            
+            if (!exportResponse.ok) {
+                const error = await exportResponse.text();
+                return {
+                    content: [{ type: 'text', text: `Figma API error: ${exportResponse.status} - ${error}` }]
+                };
+            }
+            
+            const exportData = await exportResponse.json();
+            
+            if (!exportData.images || !exportData.images[nodeId]) {
+                return {
+                    content: [{ type: 'text', text: `Failed to get export URL for node ${nodeId}` }]
+                };
+            }
+            
+            const imageUrl = exportData.images[nodeId];
+            
+            const imageResponse = await fetch(imageUrl);
+            
+            if (!imageResponse.ok) {
+                return {
+                    content: [{ type: 'text', text: `Failed to download image: ${imageResponse.status}` }]
+                };
+            }
+            
+            const imageBuffer = await imageResponse.buffer();
+            
+            return {
+                content: [
+                    { 
+                        type: 'text', 
+                        text: `✅ Successfully downloaded Figma image\n📏 Size: ${imageBuffer.length} bytes\n🔗 URL: ${imageUrl}` 
+                    },
+                    { 
+                        type: 'image', 
+                        data: imageBuffer.toString('base64'), 
+                        mimeType: 'image/png' 
+                    }
+                ]
+            };
+            
+        } catch (error) {
+            return {
+                content: [{ type: 'text', text: `❌ Error: ${error.message}` }]
+            };
         }
     }
 );
