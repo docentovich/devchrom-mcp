@@ -75,15 +75,56 @@ mcp__chrome__measureElement(url, ".button")
 ```
 
 ### Figma интеграция
+
+#### Как извлечь параметры из Figma URL
+
+Из ссылки Figma нужно извлечь два параметра:
+
+```
+https://www.figma.com/file/ABC123xyz/Project-Name?node-id=1%3A234
+                           ↑                              ↑
+                        fileKey                        nodeId
+```
+
+- **fileKey**: `ABC123xyz` (идентификатор файла)
+- **nodeId**: `1:234` (замените %3A на : при декодировании)
+
+#### Получение nodeId для конкретного элемента
+
+1. Откройте файл в Figma
+2. Выберите нужный фрейм или компонент
+3. Правый клик → **Copy/Paste as** → **Copy link**
+4. Из скопированной ссылки извлеките node-id
+
+#### Примеры использования
+
 ```javascript
-// С токеном в переменной окружения (рекомендуется)
-mcp__chrome__compareFigmaToElement(null, "fileKey", "nodeId", url, ".header")
+// Извлечь спецификации дизайна (тексты, цвета, шрифты)
+mcp__chrome__getFigmaSpecs(null, "ABC123xyz", "1:234")
 
-// С явной передачей токена
-mcp__chrome__compareFigmaToElement("figma_token", "fileKey", "nodeId", url, ".header")
+// Сравнить Figma дизайн с реализацией на сайте
+mcp__chrome__compareFigmaToElement(null, "ABC123xyz", "1:234", "https://site.com", ".header")
 
-// Получить спецификации дизайна
-mcp__chrome__getFigmaSpecs(null, "fileKey", "nodeId") // использует FIGMA_TOKEN из env
+// Получить изображение фрейма из Figma
+mcp__chrome__getFigmaFrame(null, "ABC123xyz", "1:234")
+```
+
+#### Что можно получить из Figma
+
+- **getFigmaSpecs**: все тексты, шрифты, цвета, размеры, отступы
+- **getFigmaFrame**: PNG изображение фрейма для визуального сравнения
+- **compareFigmaToElement**: автоматическое сравнение дизайна с реализацией
+
+#### Пример промпта для AI агента
+
+```
+Проанализируй текст из Figma дизайна:
+URL: https://www.figma.com/file/ABC123xyz/MyProject?node-id=1%3A234
+
+1. Извлеки fileKey и nodeId из URL
+2. Используй getFigmaSpecs для получения всех текстов
+3. Проверь тексты на орфографию и грамматику
+4. Сравни с реализацией на сайте example.com
 ```
 
 ### Responsive тестирование
