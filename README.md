@@ -2,11 +2,51 @@
 
 MCP (Model Context Protocol) сервер для работы с браузером через Puppeteer. Предоставляет 41 профессиональных инструментов для frontend разработки, включая pixel-perfect тестирование, Figma интеграцию, AI промпт генерацию и комплексный анализ качества. **v1.7.2 включает готовые промпты-шаблоны для принуждения AI агентов к использованию MCP инструментов.**
 
+---
+
+## 📚 Документация для WSL пользователей
+
+**ВАЖНО:** Если вы используете WSL (Windows Subsystem for Linux), сначала прочитайте документацию по настройке:
+
+- 🚀 **[WSL_SETUP_GUIDE.md](./WSL_SETUP_GUIDE.md)** - Полный гайд по настройке WSL + Windows + DevChrome MCP
+- 🛠️ **[~/.claude/docs/HELPER_SCRIPTS.md](~/.claude/docs/HELPER_SCRIPTS.md)** - Документация по helper скриптам для автоматизации
+- 🔌 **[~/.claude/docs/PORT_FORWARDING.md](~/.claude/docs/PORT_FORWARDING.md)** - Проброс портов Windows ↔ WSL
+
+### Быстрый старт для WSL
+
+```bash
+# 1. Настроить проброс портов (один раз)
+~/.claude/scripts/setup-port-forwarding.sh add 9223
+
+# 2. Запустить Chrome в debug режиме (каждый раз)
+~/.claude/scripts/chrome-debug.sh start
+
+# 3. Проверить подключение
+curl http://$(~/.claude/scripts/win-ip.sh):9223/json/version
+
+# 4. Установить DevChrome MCP
+npm install -g devchrome-mcp
+npm link
+claude mcp add devchrome npx devchrome-mcp
+
+# 5. Готово! Используйте DevChrome MCP инструменты в Claude Code
+```
+
+**После перезагрузки Windows:**
+```bash
+# Восстановить пробросы портов и перезапустить Chrome
+~/.claude/scripts/setup-port-forwarding.sh restore
+~/.claude/scripts/chrome-debug.sh restart
+```
+
+---
+
 ## Системные требования
 
 - **Node.js** >= 18.0.0
 - **Claude Code** (для MCP интеграции)
 - **Chrome/Chromium** (автоматически устанавливается через Puppeteer)
+- **WSL2** (для Windows пользователей - см. документацию выше)
 
 ## Установка
 
@@ -16,31 +56,37 @@ MCP (Model Context Protocol) сервер для работы с браузер�
 # Установить пакет глобально
 npm install -g devchrome-mcp
 
+# Создать глобальный симлинк (для локальной разработки)
+npm link
+
 # Добавить MCP сервер в Claude Code
-claude mcp add chrome "npx devchrome-mcp"
+claude mcp add devchrome npx devchrome-mcp
 
 # Проверить подключение
 claude mcp list
 
-# Тестирование
-claude mcp test chrome ping "Hello World"
+# Тестирование - используйте инструменты через чат:
+# "Use devchrome to ping with message: Hello World"
 ```
 
-### Локальная установка
+### Локальная установка (для разработки)
 
 ```bash
 # Клонировать репозиторий
-git clone https://github.com/yourusername/devchrome-mcp.git
+git clone https://github.com/docentovich/devchrom-mcp.git
 cd devchrome-mcp
 
-# Установить зависимости
+# Установить зав``исимости
 npm install
 
-# Добавить в Claude Code (Windows)
-claude mcp add chrome "node" "C:\\path\\to\\devchrome-mcp\\mcp_server.js"
+# Создать глобальный симлинк
+npm link
 
-# Добавить в Claude Code (Linux/Mac)  
-claude mcp add chrome "node" "/path/to/devchrome-mcp/mcp_server.js"
+# Добавить в Claude Code
+claude mcp add devchrome npx devchrome-mcp
+
+# Проверить статус
+claude mcp list
 ```
 
 
@@ -55,12 +101,15 @@ claude mcp add chrome "node" "/path/to/devchrome-mcp/mcp_server.js"
 ```bash
 # 1. Установка и настройка
 npm install -g devchrome-mcp
-claude mcp add chrome "npx devchrome-mcp"
+npm link
+claude mcp add devchrome npx devchrome-mcp
 
 # 2. Проверка работы
-claude mcp test chrome ping "Test message"
+claude mcp list
+# Должно показать: devchrome: npx devchrome-mcp - ✓ Connected
 
-# 3. Готово! Теперь доступны все инструменты через префикс mcp__chrome__
+# 3. Готово! Теперь доступны все инструменты через префикс mcp__devchrome__
+# Используйте инструменты в чате: "Use devchrome ping to test connection"
 ```
 
 ## Примеры использования
@@ -68,10 +117,10 @@ claude mcp test chrome ping "Test message"
 ### Pixel-Perfect тестирование
 ```javascript
 // Сравнить дизайн с реализацией
-mcp__chrome__compareVisual(designUrl, devUrl, ".header")
+mcp__devchrome__compareVisual(designUrl, devUrl, ".header")
 
 // Точные размеры элемента
-mcp__chrome__measureElement(url, ".button")
+mcp__devchrome__measureElement(url, ".button")
 ```
 
 ### Figma интеграция
@@ -100,13 +149,13 @@ https://www.figma.com/file/ABC123xyz/Project-Name?node-id=1%3A234
 
 ```javascript
 // Извлечь спецификации дизайна (тексты, цвета, шрифты)
-mcp__chrome__getFigmaSpecs(null, "ABC123xyz", "1:234")
+mcp__devchrome__getFigmaSpecs(null, "ABC123xyz", "1:234")
 
 // Сравнить Figma дизайн с реализацией на сайте
-mcp__chrome__compareFigmaToElement(null, "ABC123xyz", "1:234", "https://site.com", ".header")
+mcp__devchrome__compareFigmaToElement(null, "ABC123xyz", "1:234", "https://site.com", ".header")
 
 // Получить изображение фрейма из Figma
-mcp__chrome__getFigmaFrame(null, "ABC123xyz", "1:234")
+mcp__devchrome__getFigmaFrame(null, "ABC123xyz", "1:234")
 ```
 
 #### Что можно получить из Figma
@@ -130,39 +179,39 @@ URL: https://www.figma.com/file/ABC123xyz/MyProject?node-id=1%3A234
 ### Responsive тестирование
 ```javascript
 // Мобильный viewport
-mcp__chrome__setViewport(url, 375, 667)
-mcp__chrome__screenshot(url, ".component")
+mcp__devchrome__setViewport(url, 375, 667)
+mcp__devchrome__screenshot(url, ".component")
 
-// Desktop viewport  
-mcp__chrome__setViewport(url, 1920, 1080)
-mcp__chrome__screenshot(url, ".component")
+// Desktop viewport
+mcp__devchrome__setViewport(url, 1920, 1080)
+mcp__devchrome__screenshot(url, ".component")
 ```
 
 ### Performance анализ
 ```javascript
 // Core Web Vitals
-mcp__chrome__getPerformanceMetrics(url)
+mcp__devchrome__getPerformanceMetrics(url)
 
 // Accessibility проверка
-mcp__chrome__getAccessibility(url)
+mcp__devchrome__getAccessibility(url)
 ```
 
 ### AI промпт генерация
 ```javascript
 // Генерация промпта для поиска багов
-mcp__chrome__generateAIPrompt(url, null, "bug-report", {
+mcp__devchrome__generateAIPrompt(url, null, "bug-report", {
   goal: "Найти визуальные и функциональные проблемы",
   focusAreas: ["формы", "адаптивность", "производительность"]
 })
 
 // Генерация промпта для code review
-mcp__chrome__generateAIPrompt(url, ".header", "code-review", {
+mcp__devchrome__generateAIPrompt(url, ".header", "code-review", {
   goal: "Проверить качество реализации header компонента",
   outputFormat: "markdown"
 })
 
 // Генерация тест-кейсов
-mcp__chrome__generateAIPrompt(url, null, "test-generation", {
+mcp__devchrome__generateAIPrompt(url, null, "test-generation", {
   focusAreas: ["авторизация", "навигация", "формы оплаты"],
   outputFormat: "json"
 })
@@ -592,29 +641,54 @@ mcp__chrome__getFigmaFrame("ваш_токен", "fileKey", "nodeId")
 
 ## Troubleshooting
 
+### Ошибка "Failed to connect" при `claude mcp list`
+
+```bash
+# Решение для локальной разработки:
+cd /path/to/devchrome-mcp
+npm install
+npm link
+claude mcp add devchrome npx devchrome-mcp
+claude mcp list  # Должно показать ✓ Connected
+```
+
 ### Новые инструменты не видны
+
 ```bash
 # Переустановите пакет и обновите MCP
 npm uninstall -g devchrome-mcp
 npm install -g devchrome-mcp
-claude mcp remove chrome
-claude mcp add chrome "npx devchrome-mcp"
+npm link
+claude mcp remove devchrome
+claude mcp add devchrome npx devchrome-mcp
 ```
 
 ### Проблемы с Puppeteer
+
 ```bash
 # Переустановка с принудительной загрузкой Chrome
 npm uninstall -g devchrome-mcp
 npm install -g devchrome-mcp --force
+npm link
 ```
 
 ### Проверка версии
+
 ```bash
 npm list -g devchrome-mcp
-claude mcp test chrome ping "version check"
+claude mcp list
+# Проверить инструменты в чате: "Show me available devchrome tools"
 ```
 
 ## Changelog
+
+### v1.8.1
+- 🐛 **КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ**: Исправлены Windows line endings (CRLF→LF) в mcp_server.js
+- 📚 Обновлена документация по установке
+- ✅ Добавлен раздел Troubleshooting с решением "Failed to connect"
+- 📝 Исправлены примеры команд (убрана несуществующая `claude mcp test`)
+- 🔧 Добавлен шаг `npm link` в инструкции по установке
+- 🎯 Исправлен префикс инструментов: `mcp__chrome__` → `mcp__devchrome__`
 
 ### v1.8.0
 - 📋 Продублированы "Общие правила" для удобного копирования

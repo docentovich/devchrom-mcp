@@ -14,24 +14,136 @@ import fetch from 'node-fetch';
 // Figma token from environment variable (can be set in MCP config)
 const FIGMA_TOKEN = process.env.FIGMA_TOKEN || null;
 
+// Chrome Remote Debugging URL (can be set to connect to existing Chrome)
+// Example: http://172.25.96.1:9222 or ws://localhost:9222/devtools/browser/xxx
+const CHROME_REMOTE_URL = process.env.CHROME_REMOTE_URL || null;
+
 
 /* -------------------- Puppeteer: один браузер на всё приложение -------------------- */
 let browserPromise = null;
 async function getBrowser() {
     if (!browserPromise) {
-        browserPromise = puppeteer.launch({ headless: true });
+        if (CHROME_REMOTE_URL) {
+            // Подключаемся к существующему Chrome через CDP
+            console.error('[devchrome-mcp] Connecting to existing Chrome at:', CHROME_REMOTE_URL);
+
+            // Определяем browserWSEndpoint
+            let wsEndpoint;
+            if (CHROME_REMOTE_URL.startsWith('ws://') || CHROME_REMOTE_URL.startsWith('wss://')) {
+                // Уже WebSocket URL
+                wsEndpoint = CHROME_REMOTE_URL;
+            } else {
+                // HTTP URL - получаем WebSocket endpoint
+                const response = await fetch(`${CHROME_REMOTE_URL}/json/version`);
+                const data = await response.json();
+                wsEndpoint = data.webSocketDebuggerUrl;
+            }
+
+            console.error('[devchrome-mcp] Connecting to WebSocket:', wsEndpoint);
+            browserPromise = puppeteer.connect({
+                browserWSEndpoint: wsEndpoint,
+                defaultViewport: null // Используем размер окна Chrome
+            });
+        } else {
+            // Запускаем новый Chrome (как раньше)
+            console.error('[devchrome-mcp] Launching new headless Chrome');
+            browserPromise = puppeteer.launch({ headless: true });
+        }
     }
     return browserPromise;
 }
 
+/* -------------------- Управление вкладками -------------------- */
+// Хранилище открытых страниц по URL
+const openPages = new Map();
+
+// Получить или создать страницу для URL
+async function getOrCreatePage(url) {
+    const browser = await getBrowser();
+
+    // Проверяем, есть ли уже открытая страница для этого URL
+    if (openPages.has(url)) {
+        const existingPage = openPages.get(url);
+        // Проверяем, что страница еще открыта
+        if (!existingPage.isClosed()) {
+            console.error('[devchrome-mcp] Reusing existing page for:', url);
+            return existingPage;
+        } else {
+            // Страница закрыта, удаляем из кэша
+            openPages.delete(url);
+        }
+    }
+
+    // Создаем новую страницу
+    console.error('[devchrome-mcp] Creating new page for:', url);
+    const page = await browser.newPage();
+    const client = await page.target().createCDPSession();
+    await client.send('DOM.enable');
+    await client.send('CSS.enable');
+    await client.send('Runtime.enable');
+
+    // Сохраняем страницу в кэше
+    openPages.set(url, page);
+
+    // Добавляем свойство client к странице для совместимости
+    page._cdpClient = client;
+
+    return page;
+}
+
+// Старая функция createPage для совместимости с существующим кодом
 async function createPage() {
     const browser = await getBrowser();
     const page = await browser.newPage();
     const client = await page.target().createCDPSession();
     await client.send('DOM.enable');
     await client.send('CSS.enable');
-    await client.send('Runtime.enable'); // нужно для DOMDebugger.getEventListeners / RemoteObject
+    await client.send('Runtime.enable');
     return { page, client };
+}
+
+// Получить последнюю открытую страницу
+async function getLastOpenPage() {
+    if (openPages.size === 0) {
+        throw new Error('No pages are currently open. Please provide a URL.');
+    }
+
+    // Получаем последнюю страницу из Map
+    const pages = Array.from(openPages.values());
+    const lastPage = pages[pages.length - 1];
+
+    if (lastPage.isClosed()) {
+        throw new Error('Last page was closed. Please provide a URL.');
+    }
+
+    console.error('[devchrome-mcp] Using last open page:', lastPage.url());
+    return lastPage;
+}
+
+// Получить страницу: либо последнюю открытую, либо создать/переиспользовать по URL
+async function getPageForOperation(url) {
+    if (!url) {
+        // Если URL не передан, используем последнюю открытую страницу
+        return await getLastOpenPage();
+    } else {
+        // Если URL передан, получаем или создаем страницу для этого URL
+        return await getOrCreatePage(url);
+    }
+}
+
+// Очистить все открытые вкладки
+async function closeAllPages() {
+    console.error('[devchrome-mcp] Closing all pages:', openPages.size);
+    for (const [url, page] of openPages.entries()) {
+        try {
+            if (!page.isClosed()) {
+                await page.close();
+            }
+        } catch (error) {
+            console.error('[devchrome-mcp] Error closing page:', url, error);
+        }
+    }
+    openPages.clear();
 }
 
 /* -------------------- MCP Server -------------------- */
@@ -157,6 +269,119 @@ server.registerTool(
     async ({ message }) => ({
         content: [{ type: 'text', text: `pong: ${message}` }]
     })
+);
+
+/* List all Chrome tabs */
+server.registerTool(
+    'listChromeTabs',
+    {
+        title: 'List Chrome Tabs',
+        description: 'Get a list of all open Chrome tabs. Useful for seeing what tabs are available to work with.',
+        inputSchema: {}
+    },
+    async () => {
+        try {
+            if (!CHROME_REMOTE_URL) {
+                return {
+                    content: [{
+                        type: 'text',
+                        text: 'Chrome Remote Debugging is not configured. Set CHROME_REMOTE_URL environment variable.'
+                    }]
+                };
+            }
+
+            const response = await fetch(`${CHROME_REMOTE_URL}/json/list`);
+            const tabs = await response.json();
+
+            const tabList = tabs
+                .filter(tab => tab.type === 'page')
+                .map((tab, index) => ({
+                    index: index + 1,
+                    title: tab.title,
+                    url: tab.url,
+                    id: tab.id
+                }));
+
+            return {
+                content: [{
+                    type: 'text',
+                    text: `Found ${tabList.length} open tabs:\n\n` +
+                          tabList.map(t => `${t.index}. ${t.title}\n   URL: ${t.url}\n   ID: ${t.id}`).join('\n\n')
+                }]
+            };
+        } catch (error) {
+            throw new Error(`Failed to list Chrome tabs: ${error.message}`);
+        }
+    }
+);
+
+/* Use active Chrome tab */
+server.registerTool(
+    'useActiveTab',
+    {
+        title: 'Use Active Chrome Tab',
+        description: 'Connect to the currently active (foreground) Chrome tab and use it for subsequent operations. This allows you to work with the tab the user is currently viewing without needing to specify a URL.',
+        inputSchema: {}
+    },
+    async () => {
+        try {
+            if (!CHROME_REMOTE_URL) {
+                return {
+                    content: [{
+                        type: 'text',
+                        text: 'Chrome Remote Debugging is not configured. Set CHROME_REMOTE_URL environment variable.'
+                    }]
+                };
+            }
+
+            // Get all tabs
+            const response = await fetch(`${CHROME_REMOTE_URL}/json/list`);
+            const tabs = await response.json();
+
+            // Find the active tab (the one that's currently visible)
+            const activeTabs = tabs.filter(tab => tab.type === 'page');
+
+            if (activeTabs.length === 0) {
+                throw new Error('No active Chrome tabs found');
+            }
+
+            // The first page tab is typically the active one
+            // Or we can look for the one without 'webSocketDebuggerUrl' already in use
+            const activeTab = activeTabs[0];
+
+            // Connect to this tab
+            const browser = await getBrowser();
+            const pages = await browser.pages();
+
+            // Try to find existing page connection or create new one
+            let page = pages.find(p => p.url() === activeTab.url);
+
+            if (!page) {
+                // Create new page connection to this tab
+                page = await browser.newPage();
+                await page.goto(activeTab.url, { waitUntil: 'networkidle2' });
+            }
+
+            // Initialize CDP client
+            const client = await page.target().createCDPSession();
+            await client.send('DOM.enable');
+            await client.send('CSS.enable');
+            await client.send('Runtime.enable');
+            page._cdpClient = client;
+
+            // Store in openPages with the URL
+            openPages.set(activeTab.url, page);
+
+            return {
+                content: [{
+                    type: 'text',
+                    text: `Connected to active tab:\n\nTitle: ${activeTab.title}\nURL: ${activeTab.url}\n\nYou can now use other tools without providing a URL parameter.`
+                }]
+            };
+        } catch (error) {
+            throw new Error(`Failed to connect to active tab: ${error.message}`);
+        }
+    }
 );
 
 /* Вспомогательная утилита: найти nodeId по селектору, если селектора нет — вернуть <body> */
@@ -303,7 +528,7 @@ server.registerTool(
         description:
             'Get the complete HTML markup of an element for layout analysis and debugging. Perfect for inspecting component structure, checking generated HTML, or understanding element hierarchy. Returns outerHTML of the first matched element. If no selector is provided, returns the entire <body> element.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             // селектор НЕобязательный: если не указан — берётся <body>
             selector: z
                 .string()
@@ -312,10 +537,14 @@ server.registerTool(
         }
     },
     async ({ url, selector }) => {
-        const { page, client } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
+            // Переходим на URL только если он передан и отличается от текущего
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
 
+            const client = page._cdpClient || await page.target().createCDPSession();
             const nodeId = await resolveNodeId(client, selector);
             const { outerHTML } = await client.send('DOM.getOuterHTML', { nodeId });
 
@@ -324,8 +553,9 @@ server.registerTool(
                     { type: 'text', name: 'html', text: outerHTML }
                 ]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            // При ошибке не закрываем страницу
+            throw error;
         }
     }
 );
@@ -338,7 +568,7 @@ server.registerTool(
         description:
             'Analyze actual computed CSS styles applied to an element. Essential for debugging layout issues, checking responsive design, understanding cascading styles, and verifying CSS properties. Returns all computed CSS properties of the first matched element.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             selector: z
                 .string()
                 .optional()
@@ -346,10 +576,13 @@ server.registerTool(
         }
     },
     async ({ url, selector }) => {
-        const { page, client } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
 
+            const client = page._cdpClient || await page.target().createCDPSession();
             const nodeId = await resolveNodeId(client, selector);
             const { computedStyle } = await client.send('CSS.getComputedStyleForNode', { nodeId });
 
@@ -358,8 +591,8 @@ server.registerTool(
                     { type: 'text', name: 'computedCss', text: JSON.stringify(computedStyle) }
                 ]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -372,7 +605,7 @@ server.registerTool(
         description:
             'Return event listeners attached to the first matched element. If no selector is provided, the <body> element is used.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             selector: z
                 .string()
                 .optional()
@@ -380,10 +613,13 @@ server.registerTool(
         }
     },
     async ({ url, selector }) => {
-        const { page, client } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
 
+            const client = page._cdpClient || await page.target().createCDPSession();
             const nodeId = await resolveNodeId(client, selector);
             const { object } = await client.send('DOM.resolveNode', { nodeId });
 
@@ -403,28 +639,31 @@ server.registerTool(
                     { type: 'text', name: 'listeners', text: JSON.stringify(listeners) }
                 ]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
 
-/* 4) getElements (оставляем без изменений) */
+/* 4) getElements */
 server.registerTool(
     'getElements',
     {
         title: 'Get Elements',
         description: 'Find all elements that match the CSS selector; return an array of outerHTML.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             selector: z.string().describe('CSS selector (required for multiple matches)')
         }
     },
     async ({ url, selector }) => {
-        const { page, client } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
 
+            const client = page._cdpClient || await page.target().createCDPSession();
             const { root } = await client.send('DOM.getDocument');
             try {
                 const { nodeIds } = await client.send('DOM.querySelectorAll', {
@@ -441,19 +680,19 @@ server.registerTool(
                 if (elements.length === 0) {
                     const suggestions = await findSimilarSelectors(client, selector);
                     let errorMessage = `No elements found for selector: "${selector}"`;
-                    
+
                     if (suggestions.length > 0) {
                         errorMessage += `\n\nSimilar elements found:\n${suggestions.map(s => `  - ${s}`).join('\n')}`;
                     }
-                    
+
                     throw new Error( errorMessage);
                 }
 
                 return {
-                    content: [{ 
-                        type: 'text', 
-                        name: 'elements', 
-                        text: JSON.stringify(elements, null, 2) 
+                    content: [{
+                        type: 'text',
+                        name: 'elements',
+                        text: JSON.stringify(elements, null, 2)
                     }]
                 };
             } catch (error) {
@@ -462,8 +701,8 @@ server.registerTool(
                 }
                 throw new Error( `Invalid CSS selector: "${selector}". Error: ${error.message}`);
             }
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -602,19 +841,23 @@ server.registerTool(
         title: 'Get React Elements with CSS Modules',
         description: 'Find all elements by CSS module class name pattern. Supports component-specific search to avoid collisions. Returns array of matched elements with CSS module patterns.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             className: z.string().describe('CSS module class name (without dot, e.g. "someClass")'),
             componentName: z.string().optional().describe('Component name for more specific matching (e.g. "Button" for Button_someClass_xyz)')
         }
     },
     async ({ url, className, componentName }) => {
-        const { page, client } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
 
             const cleanClassName = className.replace(/^\./, '');
             let selectors = [];
-            
+
             if (componentName) {
                 selectors = [
                     `[class*="${componentName}_${cleanClassName}_"]`,
@@ -631,11 +874,11 @@ server.registerTool(
                     `[class^="${cleanClassName}_"]`
                 ];
             }
-            
+
             const { root } = await client.send('DOM.getDocument');
             let allNodeIds = [];
             let usedPattern = '';
-            
+
             for (const selector of selectors) {
                 try {
                     const { nodeIds } = await client.send('DOM.querySelectorAll', {
@@ -654,11 +897,11 @@ server.registerTool(
             }
 
             if (allNodeIds.length === 0) {
-                const searchContext = componentName 
+                const searchContext = componentName
                     ? `CSS module class "${className}" in component "${componentName}"`
                     : `CSS module class "${className}"`;
                 const triedPatterns = selectors.join(', ');
-                
+
                 throw new Error( `${searchContext} not found. Tried patterns: ${triedPatterns}`);
             }
 
@@ -668,16 +911,16 @@ server.registerTool(
                 elements.push(outerHTML);
             }
 
-            const matchInfo = componentName 
+            const matchInfo = componentName
                 ? `Found ${elements.length} elements using pattern: ${usedPattern} (component: ${componentName})`
                 : `Found ${elements.length} elements using pattern: ${usedPattern}`;
 
             return {
                 content: [
-                    { 
-                        type: 'text', 
-                        name: 'elements', 
-                        text: JSON.stringify(elements, null, 2) 
+                    {
+                        type: 'text',
+                        name: 'elements',
+                        text: JSON.stringify(elements, null, 2)
                     },
                     {
                         type: 'text',
@@ -686,8 +929,8 @@ server.registerTool(
                     }
                 ]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -699,14 +942,18 @@ server.registerTool(
         title: 'Get Box Model & Layout Metrics',
         description: 'Get precise element positioning, dimensions, margins, padding, and borders. Crucial for layout debugging, responsive design validation, and pixel-perfect positioning. Returns complete box model data including content, padding, border, and margin dimensions.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             selector: z.string().describe('CSS selector')
         }
     },
     async ({ url, selector }) => {
-        const { page, client } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
 
             const { root } = await client.send('DOM.getDocument');
             const { nodeId } = await client.send('DOM.querySelector', {
@@ -738,8 +985,8 @@ server.registerTool(
                     { type: 'text', name: 'boxModel', text: JSON.stringify({ boxModel, metrics }) }
                 ]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -856,36 +1103,39 @@ server.registerTool(
         title: 'Visual Element Screenshot',
         description: 'Capture high-quality PNG screenshots of specific elements for visual testing, design reviews, and documentation. Essential for pixel-perfect comparisons, responsive design validation, and visual regression testing. Supports padding for better context.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             selector: z.string().describe('CSS selector for the element'),
             padding: z.number().optional().describe('Padding in pixels around the element')
         }
     },
     async ({ url, selector, padding = 0 }) => {
-        const { page } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
 
             const el = await page.$(selector);
             if (!el) {
-                const client = await page.target().createCDPSession();
                 await client.send('DOM.enable');
                 const suggestions = await findSimilarSelectors(client, selector);
                 let errorMessage = `Selector not found for screenshot: ${selector}\n\nTroubleshooting tips:\n`;
                 errorMessage += `- Ensure the element is visible and not hidden\n`;
                 errorMessage += `- Check if the element has non-zero dimensions\n`;
                 errorMessage += `- Verify the selector is correct\n\n`;
-                
+
                 if (suggestions.length > 0) {
                     errorMessage += `Similar elements found:\n${suggestions.join('\n')}`;
                 }
-                
+
                 throw new Error( errorMessage);
             }
 
             const box = await el.boundingBox();
             if (!box) {
-                throw new Error( 
+                throw new Error(
                     `Element is not visible or has no bounding box: ${selector}`
                 );
             }
@@ -909,8 +1159,8 @@ server.registerTool(
                     }
                 ]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -922,14 +1172,18 @@ server.registerTool(
         title: 'Get Viewport Dimensions',
         description: 'Get current viewport size and device pixel ratio. Essential for responsive design testing and understanding how content fits on different screen sizes.',
         inputSchema: {
-            url: z.string().url().describe('Page URL')
+            // url parameter removed - uses active tab by default
         }
     },
     async ({ url }) => {
-        const { page } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
+
             const viewport = await page.evaluate(() => ({
                 width: window.innerWidth,
                 height: window.innerHeight,
@@ -941,8 +1195,8 @@ server.registerTool(
             return {
                 content: [{ type: 'text', name: 'viewport', text: JSON.stringify(viewport) }]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -954,18 +1208,23 @@ server.registerTool(
         title: 'Set Viewport Size',
         description: 'Change viewport dimensions for responsive design testing. Test how your layout adapts to different screen sizes, mobile devices, tablets, and desktop resolutions.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             width: z.number().min(320).max(4000).describe('Viewport width in pixels (320-4000)'),
             height: z.number().min(200).max(3000).describe('Viewport height in pixels (200-3000)'),
             deviceScaleFactor: z.number().min(0.5).max(3).optional().describe('Device pixel ratio (0.5-3, default: 1)')
         }
     },
     async ({ url, width, height, deviceScaleFactor = 1 }) => {
-        const { page } = await createPage();
+        const page = await getPageForOperation(url);
         try {
             await page.setViewport({ width, height, deviceScaleFactor });
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
+
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
+
             const result = await page.evaluate(() => ({
                 actualWidth: window.innerWidth,
                 actualHeight: window.innerHeight,
@@ -975,8 +1234,8 @@ server.registerTool(
             return {
                 content: [{ type: 'text', text: `Viewport set to ${width}x${height} (actual: ${result.actualWidth}x${result.actualHeight})` }]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -988,30 +1247,34 @@ server.registerTool(
         title: 'Hover Element',
         description: 'Simulate mouse hover over an element to test hover effects, tooltips, dropdown menus, and interactive states. Essential for testing CSS :hover pseudo-classes and JavaScript hover events.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             selector: z.string().describe('CSS selector for the element to hover')
         }
     },
     async ({ url, selector }) => {
-        const { page } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
+
             const element = await page.$(selector);
             if (!element) {
                 throw new Error( `Selector not found: ${selector}`);
             }
-            
+
             await element.hover();
-            
+
             // Небольшая задержка для срабатывания hover эффектов
             await new Promise(resolve => setTimeout(resolve, 100));
-            
+
             return {
                 content: [{ type: 'text', text: `Hovered over element: ${selector}` }]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -1023,30 +1286,40 @@ server.registerTool(
         title: 'Click Element',
         description: 'Simulate mouse click on an element to test buttons, links, form interactions, and JavaScript click handlers. Essential for testing user interactions and form submissions.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             selector: z.string().describe('CSS selector for the element to click')
         }
     },
     async ({ url, selector }) => {
-        const { page } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
+
             const element = await page.$(selector);
             if (!element) {
                 throw new Error( `Selector not found: ${selector}`);
             }
-            
+
             await element.click();
-            
-            // Ожидаем возможных изменений после клика
-            await new Promise(resolve => setTimeout(resolve, 200));
-            
+
+            // Ожидаем возможных изменений после клика (увеличено для модалок)
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            // Делаем скриншот после клика
+            const screenshot = await page.screenshot({ encoding: 'base64', fullPage: false });
+
             return {
-                content: [{ type: 'text', text: `Clicked element: ${selector}` }]
+                content: [
+                    { type: 'text', text: `Clicked element: ${selector}` },
+                    { type: 'image', data: screenshot, mimeType: 'image/png' }
+                ]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -1058,36 +1331,40 @@ server.registerTool(
         title: 'Scroll to Element',
         description: 'Scroll page to bring an element into view. Perfect for testing sticky elements, lazy loading, scroll animations, and ensuring elements are properly visible on long pages.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             selector: z.string().describe('CSS selector for the element to scroll to'),
             behavior: z.enum(['auto', 'smooth']).optional().describe('Scroll behavior (auto or smooth)')
         }
     },
     async ({ url, selector, behavior = 'auto' }) => {
-        const { page } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
+
             const element = await page.$(selector);
             if (!element) {
                 throw new Error( `Selector not found: ${selector}`);
             }
-            
+
             await element.scrollIntoView({ behavior });
-            
+
             // Ожидаем завершения скролла
             await new Promise(resolve => setTimeout(resolve, 300));
-            
-            const position = await page.evaluate(() => ({ 
-                x: window.scrollX, 
-                y: window.scrollY 
+
+            const position = await page.evaluate(() => ({
+                x: window.scrollX,
+                y: window.scrollY
             }));
-            
+
             return {
                 content: [{ type: 'text', text: `Scrolled to element: ${selector} (position: ${position.x}, ${position.y})` }]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -1099,40 +1376,43 @@ server.registerTool(
         title: 'Get Performance Metrics',
         description: 'Measure Core Web Vitals and performance metrics including LCP, CLS, FID, and page load times. Critical for optimizing user experience and SEO performance.',
         inputSchema: {
-            url: z.string().url().describe('Page URL')
+            // url parameter removed - uses active tab by default
         }
     },
     async ({ url }) => {
-        const { page } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            // Включаем метрики производительности
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
+
             const metrics = await page.evaluate(() => {
                 return new Promise((resolve) => {
                     // Получаем Navigation Timing API
                     const navigation = performance.getEntriesByType('navigation')[0];
                     const paint = performance.getEntriesByType('paint');
-                    
+
                     const result = {
                         // Navigation timing
                         domContentLoaded: navigation.domContentLoadedEventEnd - navigation.domContentLoadedEventStart,
                         loadComplete: navigation.loadEventEnd - navigation.loadEventStart,
                         domInteractive: navigation.domInteractive - navigation.fetchStart,
-                        
+
                         // Paint timing
                         firstPaint: paint.find(p => p.name === 'first-paint')?.startTime || null,
                         firstContentfulPaint: paint.find(p => p.name === 'first-contentful-paint')?.startTime || null,
-                        
+
                         // Layout metrics
                         layoutShiftScore: 0, // Будет обновлено через PerformanceObserver
-                        
+
                         // Resource timing
                         resourceCount: performance.getEntriesByType('resource').length,
-                        
+
                         timestamp: Date.now()
                     };
-                    
+
                     // Пытаемся получить CLS через PerformanceObserver
                     if ('PerformanceObserver' in window) {
                         try {
@@ -1145,7 +1425,7 @@ server.registerTool(
                                 }
                             });
                             observer.observe({ entryTypes: ['layout-shift'] });
-                            
+
                             setTimeout(() => {
                                 result.layoutShiftScore = cumulativeLayoutShift;
                                 observer.disconnect();
@@ -1163,8 +1443,8 @@ server.registerTool(
             return {
                 content: [{ type: 'text', name: 'performance', text: JSON.stringify(metrics, null, 2) }]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -1176,14 +1456,18 @@ server.registerTool(
         title: 'Validate HTML',
         description: 'Check HTML markup for syntax errors, accessibility issues, and semantic problems. Identifies missing alt attributes, invalid nesting, unclosed tags, and other markup issues.',
         inputSchema: {
-            url: z.string().url().describe('Page URL')
+            // url parameter removed - uses active tab by default
         }
     },
     async ({ url }) => {
-        const { page } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
+
             const validation = await page.evaluate(() => {
                 const issues = [];
                 
@@ -1281,8 +1565,8 @@ server.registerTool(
             return {
                 content: [{ type: 'text', name: 'validation', text: JSON.stringify(validation, null, 2) }]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -1294,19 +1578,23 @@ server.registerTool(
         title: 'Get Accessibility Info',
         description: 'Analyze page accessibility including ARIA attributes, contrast ratios, keyboard navigation, and screen reader compatibility. Essential for WCAG compliance and inclusive design.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             selector: z.string().optional().describe('CSS selector to analyze specific element (optional)')
         }
     },
     async ({ url, selector }) => {
-        const { page } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
+
             const accessibility = await page.evaluate((targetSelector) => {
                 const target = targetSelector ? document.querySelector(targetSelector) : document.body;
                 if (!target) return null;
-                
+
                 const result = {
                     element: targetSelector || 'body',
                     ariaAttributes: {},
@@ -1315,42 +1603,42 @@ server.registerTool(
                     contrastIssues: [],
                     semanticStructure: {}
                 };
-                
+
                 // Получаем ARIA атрибуты
                 for (const attr of target.attributes) {
                     if (attr.name.startsWith('aria-') || attr.name === 'role') {
                         result.ariaAttributes[attr.name] = attr.value;
                     }
                 }
-                
+
                 // Проверяем фокусируемость
                 const focusableElements = target.querySelectorAll(
                     'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
                 );
                 result.keyboardFocusable = focusableElements.length > 0;
-                
+
                 // Анализ семантической структуры
                 const landmarks = target.querySelectorAll('[role="main"], [role="navigation"], [role="banner"], [role="contentinfo"], main, nav, header, footer');
                 result.semanticStructure.landmarks = landmarks.length;
-                
+
                 const headings = target.querySelectorAll('h1, h2, h3, h4, h5, h6');
                 result.semanticStructure.headings = headings.length;
-                
+
                 const links = target.querySelectorAll('a[href]');
                 result.semanticStructure.links = links.length;
-                
+
                 const images = target.querySelectorAll('img');
                 result.semanticStructure.images = images.length;
                 result.semanticStructure.imagesWithAlt = target.querySelectorAll('img[alt]').length;
-                
+
                 return result;
             }, selector);
 
             return {
                 content: [{ type: 'text', name: 'accessibility', text: JSON.stringify(accessibility, null, 2) }]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -1471,15 +1759,19 @@ server.registerTool(
         title: 'Measure Element Precisely',
         description: 'Get precise pixel measurements of an element including sub-pixel positioning, computed dimensions, and visual boundaries. Essential for pixel-perfect layout validation and design system compliance.',
         inputSchema: {
-            url: z.string().url().describe('Page URL'),
+            // url parameter removed - uses active tab by default,
             selector: z.string().describe('CSS selector for the element to measure')
         }
     },
     async ({ url, selector }) => {
-        const { page, client } = await createPage();
+        const page = await getPageForOperation(url);
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            const client = page._cdpClient || await page.target().createCDPSession();
+
             const measurements = await page.evaluate((sel) => {
                 const element = document.querySelector(sel);
                 if (!element) return null;
@@ -1557,8 +1849,8 @@ server.registerTool(
             return {
                 content: [{ type: 'text', name: 'measurements', text: JSON.stringify(measurements, null, 2) }]
             };
-        } finally {
-            await page.close().catch(() => {});
+        } catch (error) {
+            throw error;
         }
     }
 );
@@ -6075,6 +6367,60 @@ server.registerTool(
             
         } finally {
             await page.close().catch(() => {});
+        }
+    }
+);
+
+/* -------------------- Execute JavaScript -------------------- */
+server.registerTool(
+    'executeScript',
+    {
+        title: 'Execute JavaScript',
+        description: 'Execute arbitrary JavaScript code in the page context. Perfect for complex interactions, setting values, triggering events, or any custom page manipulation that other tools cannot handle.',
+        inputSchema: {
+            // url parameter removed - uses active tab by default,
+            script: z.string().describe('JavaScript code to execute in page context'),
+            waitAfter: z.number().optional().describe('Milliseconds to wait after execution (default: 500)')
+        }
+    },
+    async ({ url, script, waitAfter = 500 }) => {
+        const page = await getPageForOperation(url);
+        try {
+            // Переходим на URL только если он передан и отличается от текущего
+            if (url && page.url() !== url) {
+                await page.goto(url, { waitUntil: 'networkidle2' });
+            }
+
+            // Выполняем скрипт
+            const result = await page.evaluate((code) => {
+                try {
+                    // eslint-disable-next-line no-eval
+                    const evalResult = eval(code);
+                    return { success: true, result: evalResult };
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }, script);
+
+            // Ждем после выполнения
+            await new Promise(resolve => setTimeout(resolve, waitAfter));
+
+            // Делаем скриншот после выполнения
+            const screenshot = await page.screenshot({ encoding: 'base64', fullPage: false });
+
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: result.success
+                            ? `Script executed successfully. Result: ${JSON.stringify(result.result)}`
+                            : `Script execution failed: ${result.error}`
+                    },
+                    { type: 'image', data: screenshot, mimeType: 'image/png' }
+                ]
+            };
+        } catch (error) {
+            throw error;
         }
     }
 );
