@@ -336,6 +336,37 @@ server.registerTool(
 
             // Get all tabs
             const response = await fetch(`${CHROME_REMOTE_URL}/json/list`);
+
+/* Navigate to URL */
+server.registerTool(
+    'navigateTo',
+    {
+        title: 'Navigate to URL',
+        description: 'Navigate the current page to a new URL. Use this tool when you need to open a different page or reload the current page. After navigation, all other tools will work with this new page.',
+        inputSchema: {
+            url: z.string().url().describe('URL to navigate to'),
+            waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle0', 'networkidle2']).optional().describe('Wait until event (default: networkidle2)')
+        }
+    },
+    async ({ url, waitUntil = 'networkidle2' }) => {
+        try {
+            // Get or create page for this URL
+            const page = await getOrCreatePage(url);
+
+            // Navigate to the URL
+            await page.goto(url, { waitUntil });
+
+            return {
+                content: [{
+                    type: 'text',
+                    text: `Successfully navigated to: ${url}\n\nPage title: ${await page.title()}\n\nYou can now use other tools to interact with this page.`
+                }]
+            };
+        } catch (error) {
+            throw new Error(`Failed to navigate to ${url}: ${error.message}`);
+        }
+    }
+);
             const tabs = await response.json();
 
             // Find the active tab (the one that's currently visible)
@@ -536,15 +567,10 @@ server.registerTool(
                 .describe('CSS selector (optional). If omitted or empty, the <body> element is used')
         }
     },
-    async ({ url, selector }) => {
-        const page = await getPageForOperation(url);
+    async ({ selector }) => {
+        const page = await getLastOpenPage();
         try {
-            // Переходим на URL только если он передан и отличается от текущего
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
             const nodeId = await resolveNodeId(client, selector);
             const { outerHTML } = await client.send('DOM.getOuterHTML', { nodeId });
 
@@ -575,14 +601,10 @@ server.registerTool(
                 .describe('CSS selector (optional). If omitted or empty, the <body> element is used')
         }
     },
-    async ({ url, selector }) => {
-        const page = await getPageForOperation(url);
+    async ({ selector }) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
             const nodeId = await resolveNodeId(client, selector);
             const { computedStyle } = await client.send('CSS.getComputedStyleForNode', { nodeId });
 
@@ -612,14 +634,10 @@ server.registerTool(
                 .describe('CSS selector (optional). If omitted or empty, the <body> element is used')
         }
     },
-    async ({ url, selector }) => {
-        const page = await getPageForOperation(url);
+    async ({ selector }) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
             const nodeId = await resolveNodeId(client, selector);
             const { object } = await client.send('DOM.resolveNode', { nodeId });
 
@@ -656,14 +674,10 @@ server.registerTool(
             selector: z.string().describe('CSS selector (required for multiple matches)')
         }
     },
-    async ({ url, selector }) => {
-        const page = await getPageForOperation(url);
+    async ({ selector }) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
             const { root } = await client.send('DOM.getDocument');
             try {
                 const { nodeIds } = await client.send('DOM.querySelectorAll', {
@@ -766,12 +780,9 @@ transformations like .someClass → Button_someClass_x7k9p2.
             componentName: z.string().optional().describe('Component name for more specific matching (e.g. "Button" for Button_someClass_xyz)')
         }
     },
-    async ({ url, className, componentName }) => {
+    async ({ className, componentName }) => {
         const { page, client } = await createPage();
-        try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-
-            const cleanClassName = className.replace(/^\./, '');
+        try {            const cleanClassName = className.replace(/^\./, '');
             let selectors = [];
             
             if (componentName) {
@@ -846,14 +857,10 @@ server.registerTool(
             componentName: z.string().optional().describe('Component name for more specific matching (e.g. "Button" for Button_someClass_xyz)')
         }
     },
-    async ({ url, className, componentName }) => {
-        const page = await getPageForOperation(url);
+    async ({ className, componentName }) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const cleanClassName = className.replace(/^\./, '');
             let selectors = [];
@@ -946,14 +953,10 @@ server.registerTool(
             selector: z.string().describe('CSS selector')
         }
     },
-    async ({ url, selector }) => {
-        const page = await getPageForOperation(url);
+    async ({ selector }) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const { root } = await client.send('DOM.getDocument');
             const { nodeId } = await client.send('DOM.querySelector', {
@@ -1004,12 +1007,9 @@ server.registerTool(
             levels: z.number().int().min(1).describe('How many levels up from the element')
         }
     },
-    async ({ url, selector, levels }) => {
-        const { page } = await createPage();
-        try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-
-            const parents = await page.evaluate(
+    async ({ selector, levels }) => {
+        const page = await getLastOpenPage();
+        try {            const parents = await page.evaluate(
                 ({ selector, levels }) => {
                     const el = document.querySelector(selector);
                     if (!el) return null;
@@ -1064,12 +1064,9 @@ server.registerTool(
                 .describe('List of inline CSS styles as {name,value} pairs')
         }
     },
-    async ({ url, selector, styles }) => {
-        const { page } = await createPage();
-        try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-
-            const dict = {};
+    async ({ selector, styles }) => {
+        const page = await getLastOpenPage();
+        try {            const dict = {};
             for (const item of styles) {
                 if (!item) continue;
                 const { name, value } = item;
@@ -1108,14 +1105,10 @@ server.registerTool(
             padding: z.number().optional().describe('Padding in pixels around the element')
         }
     },
-    async ({ url, selector, padding = 0 }) => {
-        const page = await getPageForOperation(url);
+    async ({ selector, padding = 0 }) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const el = await page.$(selector);
             if (!el) {
@@ -1175,14 +1168,10 @@ server.registerTool(
             // url parameter removed - uses active tab by default
         }
     },
-    async ({ url }) => {
-        const page = await getPageForOperation(url);
+    async ({}) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const viewport = await page.evaluate(() => ({
                 width: window.innerWidth,
@@ -1214,16 +1203,11 @@ server.registerTool(
             deviceScaleFactor: z.number().min(0.5).max(3).optional().describe('Device pixel ratio (0.5-3, default: 1)')
         }
     },
-    async ({ url, width, height, deviceScaleFactor = 1 }) => {
-        const page = await getPageForOperation(url);
+    async ({ width, height, deviceScaleFactor = 1 }) => {
+        const page = await getLastOpenPage();
         try {
             await page.setViewport({ width, height, deviceScaleFactor });
-
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const result = await page.evaluate(() => ({
                 actualWidth: window.innerWidth,
@@ -1251,14 +1235,10 @@ server.registerTool(
             selector: z.string().describe('CSS selector for the element to hover')
         }
     },
-    async ({ url, selector }) => {
-        const page = await getPageForOperation(url);
+    async ({ selector }) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const element = await page.$(selector);
             if (!element) {
@@ -1290,14 +1270,10 @@ server.registerTool(
             selector: z.string().describe('CSS selector for the element to click')
         }
     },
-    async ({ url, selector }) => {
-        const page = await getPageForOperation(url);
+    async ({ selector }) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const element = await page.$(selector);
             if (!element) {
@@ -1336,14 +1312,10 @@ server.registerTool(
             behavior: z.enum(['auto', 'smooth']).optional().describe('Scroll behavior (auto or smooth)')
         }
     },
-    async ({ url, selector, behavior = 'auto' }) => {
-        const page = await getPageForOperation(url);
+    async ({ selector, behavior = 'auto' }) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const element = await page.$(selector);
             if (!element) {
@@ -1379,14 +1351,10 @@ server.registerTool(
             // url parameter removed - uses active tab by default
         }
     },
-    async ({ url }) => {
-        const page = await getPageForOperation(url);
+    async ({}) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const metrics = await page.evaluate(() => {
                 return new Promise((resolve) => {
@@ -1459,14 +1427,10 @@ server.registerTool(
             // url parameter removed - uses active tab by default
         }
     },
-    async ({ url }) => {
-        const page = await getPageForOperation(url);
+    async ({}) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const validation = await page.evaluate(() => {
                 const issues = [];
@@ -1582,14 +1546,10 @@ server.registerTool(
             selector: z.string().optional().describe('CSS selector to analyze specific element (optional)')
         }
     },
-    async ({ url, selector }) => {
-        const page = await getPageForOperation(url);
+    async ({ selector }) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const accessibility = await page.evaluate((targetSelector) => {
                 const target = targetSelector ? document.querySelector(targetSelector) : document.body;
@@ -1763,14 +1723,10 @@ server.registerTool(
             selector: z.string().describe('CSS selector for the element to measure')
         }
     },
-    async ({ url, selector }) => {
-        const page = await getPageForOperation(url);
+    async ({ selector }) => {
+        const page = await getLastOpenPage();
         try {
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            const client = page._cdpClient || await page.target().createCDPSession();
+const client = page._cdpClient || await page.target().createCDPSession();
 
             const measurements = await page.evaluate((sel) => {
                 const element = document.querySelector(sel);
@@ -2467,7 +2423,7 @@ Eliminates guesswork by providing direct, automated design-vs-reality comparison
         if (!token) {
             throw new McpError(ErrorCode.InvalidRequest, 'Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
         }
-        const { page } = await createPage();
+        const page = await getLastOpenPage();
         
         try {
             // Получаем Figma изображение
@@ -2484,9 +2440,7 @@ Eliminates guesswork by providing direct, automated design-vs-reality comparison
             const figmaResponse = await fetch(figmaImageUrl);
             const figmaBuffer = await figmaResponse.buffer();
             
-            // Получаем скриншот элемента страницы
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            const element = await page.$(selector);
+            // Получаем скриншот элемента страницы            const element = await page.$(selector);
             
             if (!element) {
                 throw new Error( `Selector not found: ${selector}`);
@@ -3756,18 +3710,15 @@ server.registerTool(
             }).optional().describe('Tolerance settings')
         }
     },
-    async ({ url, selector, designSystem, tolerance = {} }) => {
-        const { page } = await createPage();
+    async ({ selector, designSystem, tolerance = {} }) => {
+        const page = await getLastOpenPage();
         
         const config = {
             colorTolerance: tolerance.color || 15,
             sizeTolerance: tolerance.size || 2
         };
         
-        try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
-            // Получаем данные элементов
+        try {            // Получаем данные элементов
             const elementData = await page.evaluate((sel) => {
                 const elements = document.querySelectorAll(sel);
                 const results = [];
@@ -4087,13 +4038,10 @@ Perfect for ensuring proper HTML semantics, accessibility structure, and compone
             maxDepth: z.number().min(1).max(20).optional().describe('Maximum nesting depth to analyze (default: 10)')
         }
     },
-    async ({ url, selector = 'body', includeAttributes = true, maxDepth = 10 }) => {
-        const { page } = await createPage();
+    async ({ selector = 'body', includeAttributes = true, maxDepth = 10 }) => {
+        const page = await getLastOpenPage();
         
-        try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
-            const structure = await page.evaluate((rootSelector, includeAttrs, maxD) => {
+        try {            const structure = await page.evaluate((rootSelector, includeAttrs, maxD) => {
                 const rootElement = document.querySelector(rootSelector);
                 if (!rootElement) return null;
                 
@@ -4544,12 +4492,9 @@ Ensures buttons work, forms submit, links navigate, and accessibility is maintai
         }
     },
     async ({ url, selector = 'body', testInteractions = false, includeKeyboard = true }) => {
-        const { page } = await createPage();
+        const page = await getLastOpenPage();
         
-        try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
-            const analysis = await page.evaluate(async (containerSel, testInter, testKeyboard) => {
+        try {            const analysis = await page.evaluate(async (containerSel, testInter, testKeyboard) => {
                 const container = document.querySelector(containerSel);
                 if (!container) return null;
                 
@@ -4935,7 +4880,7 @@ Perfect for design review meetings, client presentations, and development docume
             // 2. Figma Comparison (if configured)
             if (figmaConfig) {
                 try {
-                    const { page } = await createPage();
+                    const page = await getLastOpenPage();
                     
                     try {
                         // Use provided token or fall back to environment variable
@@ -5056,7 +5001,7 @@ Perfect for design review meetings, client presentations, and development docume
             
             // 4. Semantic Analysis (if enabled)
             if (options.includeSemantics) {
-                const { page } = await createPage();
+                const page = await getLastOpenPage();
                 
                 try {
                     await page.goto(url2, { waitUntil: 'networkidle2' });
@@ -5230,12 +5175,9 @@ Perfect for design reviews, client feedback, and developer guidance.
         }
     },
     async ({ url, selector, annotationTypes = ['spacing', 'colors', 'alignment'], outputFormat = 'base64' }) => {
-        const { page } = await createPage();
+        const page = await getLastOpenPage();
         
-        try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
-            const element = await page.$(selector);
+        try {            const element = await page.$(selector);
             if (!element) {
                 throw new Error( `Selector "${selector}" not found`);
             }
@@ -5453,10 +5395,7 @@ Creates detailed, structured prompts that help AI understand and work with web p
     async ({ url, selector, promptType, context = {}, includePageData = true }) => {
         const { page, client } = await createPage();
         
-        try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
-            let pageAnalysis = {};
+        try {            let pageAnalysis = {};
             
             if (includePageData) {
                 // Сбор данных о странице
@@ -6245,10 +6184,7 @@ server.registerTool(
 
         const { page, client } = await createPage();
         
-        try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
-            
-            const results = [];
+        try {            const results = [];
             let passedCount = 0;
             
             for (const comparison of comparisons) {
@@ -6384,14 +6320,9 @@ server.registerTool(
         }
     },
     async ({ url, script, waitAfter = 500 }) => {
-        const page = await getPageForOperation(url);
+        const page = await getLastOpenPage();
         try {
-            // Переходим на URL только если он передан и отличается от текущего
-            if (url && page.url() !== url) {
-                await page.goto(url, { waitUntil: 'networkidle2' });
-            }
-
-            // Выполняем скрипт
+// Выполняем скрипт
             const result = await page.evaluate((code) => {
                 try {
                     // eslint-disable-next-line no-eval
