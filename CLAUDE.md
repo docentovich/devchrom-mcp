@@ -62,12 +62,51 @@ async function getOrCreatePage(url) {
 - Stdio transport for MCP protocol communication
 - Error recovery with intelligent selector suggestions
 
-### Dual Operation Modes
+### Browser Connection Modes (Priority Order)
 
-1. **Local Mode**: Launches Chromium via Puppeteer (default)
-2. **Remote Mode**: Connects to existing Chrome via CDP WebSocket
-   - Set `CHROME_REMOTE_URL=http://172.25.96.1:9223` (for WSL scenarios)
-   - Or `CHROME_REMOTE_URL=ws://localhost:9222/devtools/browser/abc123`
+**NEW in v1.9.0:** Three-tier system with automatic fallback:
+
+1. **Puppeteer Bridge Mode** (Recommended for WSL) - PRIORITY 1
+   - Automatically detected at `http://172.25.96.1:9224` or `http://localhost:9224`
+   - HTTP API for browser management
+   - Runs as Windows Service
+   - No manual Chrome management needed
+
+2. **Remote Debug Mode** (Legacy) - PRIORITY 2
+   - Set `CHROME_REMOTE_URL=http://172.25.96.1:9223`
+   - Requires manual Chrome launch with `--remote-debugging-port`
+   - For backward compatibility
+
+3. **Local Mode** (Default) - PRIORITY 3
+   - Launches Chromium via Puppeteer automatically
+   - Works on all platforms
+   - No configuration needed
+
+### Puppeteer Bridge Architecture (NEW v1.9.0)
+
+Located in `bridge/` directory:
+
+```
+bridge/
+├── puppeteer-bridge.js      # HTTP server managing Puppeteer
+├── install-bridge.ps1        # Windows Service installer
+├── uninstall-bridge.ps1      # Uninstaller
+└── package.json              # Bridge dependencies
+
+scripts/
+└── setup-bridge.js           # CLI tool for bridge management
+```
+
+**Bridge API Endpoints:**
+- `GET /health` - Health check
+- `POST /api/browser/launch` - Get or create browser instance
+- `POST /api/browser/close` - Close browser
+- `GET /api/browser/status` - Get browser status
+
+**CLI Commands:**
+- `devchrome-bridge setup` - Install and start bridge
+- `devchrome-bridge status` - Check bridge status
+- `devchrome-bridge uninstall` - Remove bridge
 
 ### MCP Server Registration (Lines 150-257)
 

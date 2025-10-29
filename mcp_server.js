@@ -18,22 +18,93 @@ const FIGMA_TOKEN = process.env.FIGMA_TOKEN || null;
 // Example: http://172.25.96.1:9222 or ws://localhost:9222/devtools/browser/xxx
 const CHROME_REMOTE_URL = process.env.CHROME_REMOTE_URL || null;
 
+// Puppeteer Bridge URL (for WSL environments)
+const BRIDGE_URL = process.env.BRIDGE_URL || null;
+
+/* -------------------- Puppeteer Bridge Detection -------------------- */
+async function detectBridge() {
+    // Если явно указан BRIDGE_URL - используем его
+    if (BRIDGE_URL) {
+        try {
+            const response = await fetch(`${BRIDGE_URL}/health`, {
+                signal: AbortSignal.timeout(1000)
+            });
+            if (response.ok) {
+                console.error('[devchrome-mcp] Using configured Bridge:', BRIDGE_URL);
+                return BRIDGE_URL;
+            }
+        } catch (e) {
+            console.error('[devchrome-mcp] Configured Bridge not available:', BRIDGE_URL);
+        }
+    }
+
+    // Автоопределение bridge
+    const potentialBridges = [
+        'http://172.25.96.1:9224',  // WSL → Windows (стандартный IP хоста)
+        'http://localhost:9224',     // Локальный bridge
+        'http://127.0.0.1:9224'      // Альтернативный локальный
+    ];
+
+    for (const url of potentialBridges) {
+        try {
+            const response = await fetch(`${url}/health`, {
+                signal: AbortSignal.timeout(1000)
+            });
+            if (response.ok) {
+                console.error('[devchrome-mcp] Detected Puppeteer Bridge:', url);
+                return url;
+            }
+        } catch (e) {
+            // Bridge недоступен, пробуем следующий
+            continue;
+        }
+    }
+
+    return null;
+}
 
 /* -------------------- Puppeteer: один браузер на всё приложение -------------------- */
 let browserPromise = null;
 async function getBrowser() {
     if (!browserPromise) {
-        if (CHROME_REMOTE_URL) {
-            // Подключаемся к существующему Chrome через CDP
-            console.error('[devchrome-mcp] Connecting to existing Chrome at:', CHROME_REMOTE_URL);
+        // Приоритет 1: Puppeteer Bridge (рекомендуется для WSL)
+        const bridgeUrl = await detectBridge();
+        if (bridgeUrl) {
+            console.error('[devchrome-mcp] 🌉 Using Puppeteer Bridge');
+            browserPromise = (async () => {
+                try {
+                    const response = await fetch(`${bridgeUrl}/api/browser/launch`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({})
+                    });
+                    const data = await response.json();
+
+                    if (!data.wsEndpoint) {
+                        throw new Error('Bridge did not return wsEndpoint');
+                    }
+
+                    console.error('[devchrome-mcp] Connected to bridge browser:', data.wsEndpoint);
+                    return await puppeteer.connect({
+                        browserWSEndpoint: data.wsEndpoint,
+                        defaultViewport: null
+                    });
+                } catch (error) {
+                    console.error('[devchrome-mcp] Bridge connection failed:', error.message);
+                    console.error('[devchrome-mcp] Falling back to legacy methods...');
+                    throw error;
+                }
+            })();
+        }
+        // Приоритет 2: CHROME_REMOTE_URL (legacy, для обратной совместимости)
+        else if (CHROME_REMOTE_URL) {
+            console.error('[devchrome-mcp] 🔗 Using Chrome Remote Debug:', CHROME_REMOTE_URL);
 
             // Определяем browserWSEndpoint
             let wsEndpoint;
             if (CHROME_REMOTE_URL.startsWith('ws://') || CHROME_REMOTE_URL.startsWith('wss://')) {
-                // Уже WebSocket URL
                 wsEndpoint = CHROME_REMOTE_URL;
             } else {
-                // HTTP URL - получаем WebSocket endpoint
                 const response = await fetch(`${CHROME_REMOTE_URL}/json/version`);
                 const data = await response.json();
                 wsEndpoint = data.webSocketDebuggerUrl;
@@ -42,11 +113,12 @@ async function getBrowser() {
             console.error('[devchrome-mcp] Connecting to WebSocket:', wsEndpoint);
             browserPromise = puppeteer.connect({
                 browserWSEndpoint: wsEndpoint,
-                defaultViewport: null // Используем размер окна Chrome
+                defaultViewport: null
             });
-        } else {
-            // Запускаем новый Chrome (как раньше)
-            console.error('[devchrome-mcp] Launching new headless Chrome');
+        }
+        // Приоритет 3: Локальный Puppeteer (запуск собственного Chrome)
+        else {
+            console.error('[devchrome-mcp] 🚀 Launching local headless Chrome');
             browserPromise = puppeteer.launch({ headless: true });
         }
     }

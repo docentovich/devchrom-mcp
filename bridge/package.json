@@ -1,0 +1,18 @@
+{
+  "name": "devchrome-puppeteer-bridge",
+  "version": "1.0.0",
+  "description": "Puppeteer bridge service for DevChrome MCP",
+  "main": "puppeteer-bridge.js",
+  "type": "module",
+  "scripts": {
+    "start": "node puppeteer-bridge.js"
+  },
+  "keywords": ["puppeteer", "bridge", "mcp"],
+  "author": "DevChrome",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.1.0",
+    "cors": "^2.8.5",
+    "puppeteer": "^24.15.0"
+  }
+}

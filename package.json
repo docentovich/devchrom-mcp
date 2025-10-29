@@ -1,20 +1,24 @@
 {
   "name": "devchrome-mcp",
-  "version": "1.8.2",
-  "description": "MCP (Model Context Protocol) сервер для работы с браузером через Puppeteer",
+  "version": "1.9.0",
+  "description": "MCP (Model Context Protocol) сервер для работы с браузером через Puppeteer. Включает Puppeteer Bridge для WSL окружений.",
   "main": "mcp_server.js",
   "type": "module",
   "bin": {
-    "devchrome-mcp": "./mcp_server.js"
+    "devchrome-mcp": "./mcp_server.js",
+    "devchrome-bridge": "./scripts/setup-bridge.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node mcp_server.js",
     "dev": "node mcp_server.js",
+    "bridge:setup": "node scripts/setup-bridge.js setup",
+    "bridge:status": "node scripts/setup-bridge.js status",
+    "bridge:uninstall": "node scripts/setup-bridge.js uninstall",
     "build": "npm run lint && npm run validate",
     "build:full": "node build.js",
     "lint": "echo \"No linting configured\"",
-    "validate": "node -c mcp_server.js && echo \"Syntax validation passed\"",
+    "validate": "node -c mcp_server.js && node -c bridge/puppeteer-bridge.js && node -c scripts/setup-bridge.js && echo \"Syntax validation passed\"",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
