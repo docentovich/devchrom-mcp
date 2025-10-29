@@ -180,20 +180,50 @@ async function createPage() {
 
 // Получить последнюю открытую страницу
 async function getLastOpenPage() {
-    if (openPages.size === 0) {
-        throw new Error('No pages are currently open. Please provide a URL.');
+    // Если есть страницы в нашем кэше - используем последнюю
+    if (openPages.size > 0) {
+        const pages = Array.from(openPages.values());
+        const lastPage = pages[pages.length - 1];
+
+        if (!lastPage.isClosed()) {
+            console.error('[devchrome-mcp] Using last open page from cache:', lastPage.url());
+            return lastPage;
+        }
     }
 
-    // Получаем последнюю страницу из Map
-    const pages = Array.from(openPages.values());
-    const lastPage = pages[pages.length - 1];
+    // Если кэш пуст или страница закрыта - подключаемся к активной вкладке Chrome
+    console.error('[devchrome-mcp] No cached pages, connecting to active Chrome tab...');
+    const browser = await getBrowser();
+    const targets = await browser.targets();
 
-    if (lastPage.isClosed()) {
-        throw new Error('Last page was closed. Please provide a URL.');
+    // Ищем активную страницу (не фоновую и не extension)
+    const pageTargets = targets.filter(t => t.type() === 'page');
+
+    if (pageTargets.length === 0) {
+        throw new Error('No pages are currently open in Chrome. Please open a page or provide a URL.');
     }
 
-    console.error('[devchrome-mcp] Using last open page:', lastPage.url());
-    return lastPage;
+    // Берем первую доступную страницу
+    const target = pageTargets[0];
+    const page = await target.page();
+
+    if (!page) {
+        throw new Error('Could not connect to Chrome page. Please provide a URL.');
+    }
+
+    // Подключаем CDP клиент
+    const client = await page.target().createCDPSession();
+    await client.send('DOM.enable');
+    await client.send('CSS.enable');
+    await client.send('Runtime.enable');
+    page._cdpClient = client;
+
+    // Сохраняем в кэш
+    const pageUrl = page.url();
+    openPages.set(pageUrl, page);
+
+    console.error('[devchrome-mcp] Connected to active Chrome tab:', pageUrl);
+    return page;
 }
 
 // Получить страницу: либо последнюю открытую, либо создать/переиспользовать по URL
@@ -226,7 +256,7 @@ async function closeAllPages() {
 const server = new McpServer(
     {
         name: 'devchrome-mcp',
-        version: '1.9.5',
+        version: '1.9.6',
         description: `
 🎨 PROFESSIONAL PIXEL-PERFECT DESIGN VALIDATION SYSTEM 🎨
 
