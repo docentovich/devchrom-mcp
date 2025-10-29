@@ -746,6 +746,28 @@ mcp__chrome__getFigmaFrame("ваш_токен", "fileKey", "nodeId")
 
 ## Troubleshooting
 
+### ⚠️ "npx devchrome-mcp зависает" - это нормально!
+
+**Важно:** Если вы запускаете `npx devchrome-mcp` вручную в терминале, он будет "зависать" без вывода. **Это нормальное поведение!**
+
+MCP серверы используют **stdio транспорт** - они молча ждут JSON-RPC команд через stdin и отвечают через stdout.
+
+```bash
+# ❌ Если запустить напрямую - будет "зависать"
+npx devchrome-mcp
+# (ничего не выводится, ждет ввода - это ПРАВИЛЬНО!)
+
+# ✅ Правильный способ использования - через MCP клиент (Claude Code)
+claude mcp add devchrome npx devchrome-mcp
+claude mcp list  # Должно показать ✓ Connected
+
+# ✅ Или проверить через stdin команду
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | npx devchrome-mcp
+# Должен вернуть JSON ответ с инициализацией
+```
+
+**Вывод:** не запускайте MCP сервер напрямую в терминале для тестирования - используйте `claude mcp list` или MCP клиент.
+
 ### Ошибка "Failed to connect" при `claude mcp list`
 
 ```bash
