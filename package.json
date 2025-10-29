@@ -1,6 +1,6 @@
 {
   "name": "devchrome-mcp",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "description": "MCP (Model Context Protocol) сервер для работы с браузером через Puppeteer",
   "main": "mcp_server.js",
   "type": "module",
