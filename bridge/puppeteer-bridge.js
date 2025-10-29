@@ -22,6 +22,34 @@ let pageCount = 0;
 const PORT = process.env.BRIDGE_PORT || 9224;
 const HOST = process.env.BRIDGE_HOST || '0.0.0.0';
 
+/**
+ * Заменяет localhost/127.0.0.1 в WebSocket endpoint на доступный из WSL адрес
+ * Для WSL это обычно IP хоста Windows (172.25.96.1 или аналогичный)
+ */
+function makeWSLAccessible(wsEndpoint) {
+    if (!wsEndpoint) return wsEndpoint;
+
+    // Если endpoint уже не localhost - возвращаем как есть
+    if (!wsEndpoint.includes('127.0.0.1') && !wsEndpoint.includes('localhost')) {
+        return wsEndpoint;
+    }
+
+    // Получаем IP хоста для WSL
+    // В Windows это можно получить из переменной окружения или определить по сетевым интерфейсам
+    const wslHostIP = process.env.WSL_HOST_IP || '172.25.96.1';
+
+    // Заменяем localhost/127.0.0.1 на WSL-доступный IP
+    const accessible = wsEndpoint
+        .replace('127.0.0.1', wslHostIP)
+        .replace('localhost', wslHostIP);
+
+    console.log(`🔄 Endpoint converted for WSL access:`);
+    console.log(`   Original: ${wsEndpoint}`);
+    console.log(`   Accessible: ${accessible}`);
+
+    return accessible;
+}
+
 // === API Endpoints ===
 
 /**
@@ -48,7 +76,7 @@ app.post('/api/browser/launch', async (req, res) => {
         // Проверяем существующий browser
         if (browser && browser.isConnected()) {
             return res.json({
-                wsEndpoint: browser.wsEndpoint(),
+                wsEndpoint: makeWSLAccessible(browser.wsEndpoint()),
                 browserActive: true,
                 reused: true
             });
@@ -58,7 +86,7 @@ app.post('/api/browser/launch', async (req, res) => {
         if (browserLaunchPromise) {
             browser = await browserLaunchPromise;
             return res.json({
-                wsEndpoint: browser.wsEndpoint(),
+                wsEndpoint: makeWSLAccessible(browser.wsEndpoint()),
                 browserActive: true,
                 reused: false
             });
@@ -88,13 +116,14 @@ app.post('/api/browser/launch', async (req, res) => {
             pageCount = 0;
         });
 
+        const wsEndpoint = makeWSLAccessible(browser.wsEndpoint());
         res.json({
-            wsEndpoint: browser.wsEndpoint(),
+            wsEndpoint: wsEndpoint,
             browserActive: true,
             reused: false
         });
 
-        console.log('🚀 Browser launched:', browser.wsEndpoint());
+        console.log('🚀 Browser launched:', wsEndpoint);
     } catch (error) {
         console.error('❌ Browser launch error:', error);
         browserLaunchPromise = null;
@@ -132,7 +161,7 @@ app.get('/api/browser/status', (req, res) => {
     res.json({
         isActive: !!browser,
         isConnected: browser ? browser.isConnected() : false,
-        wsEndpoint: browser ? browser.wsEndpoint() : null,
+        wsEndpoint: browser ? makeWSLAccessible(browser.wsEndpoint()) : null,
         pageCount: pageCount,
         pid: browser ? browser.process()?.pid : null
     });

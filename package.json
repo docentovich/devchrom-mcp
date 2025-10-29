@@ -1,6 +1,6 @@
 {
   "name": "devchrome-mcp",
-  "version": "1.9.6",
+  "version": "1.9.7",
   "description": "MCP (Model Context Protocol) сервер для работы с браузером через Puppeteer. Включает Puppeteer Bridge для WSL окружений.",
   "main": "mcp_server.js",
   "type": "module",
