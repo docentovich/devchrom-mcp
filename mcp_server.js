@@ -154,6 +154,10 @@ async function getOrCreatePage(url) {
     await client.send('CSS.enable');
     await client.send('Runtime.enable');
 
+    // Navigate to the URL
+    console.error('[devchrome-mcp] Navigating to:', url);
+    await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+
     // Сохраняем страницу в кэше
     openPages.set(url, page);
 
@@ -222,7 +226,7 @@ async function closeAllPages() {
 const server = new McpServer(
     {
         name: 'devchrome-mcp',
-        version: '1.9.4',
+        version: '1.9.5',
         description: `
 🎨 PROFESSIONAL PIXEL-PERFECT DESIGN VALIDATION SYSTEM 🎨
 
@@ -1245,7 +1249,7 @@ server.registerTool(
         title: 'Get Viewport Dimensions',
         description: 'Get current viewport size and device pixel ratio. Essential for responsive design testing and understanding how content fits on different screen sizes.',
         inputSchema: {
-            // url parameter removed - uses active tab by default
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)')
         }
     },
     async ({ url }) => {
@@ -1434,7 +1438,7 @@ server.registerTool(
         title: 'Get Performance Metrics',
         description: 'Measure Core Web Vitals and performance metrics including LCP, CLS, FID, and page load times. Critical for optimizing user experience and SEO performance.',
         inputSchema: {
-            // url parameter removed - uses active tab by default
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)')
         }
     },
     async ({ url }) => {
