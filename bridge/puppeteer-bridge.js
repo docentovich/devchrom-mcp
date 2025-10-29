@@ -101,7 +101,8 @@ app.post('/api/browser/launch', async (req, res) => {
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-accelerated-2d-canvas',
-                '--disable-gpu'
+                '--disable-gpu',
+                '--remote-debugging-address=0.0.0.0'  // Слушать на всех интерфейсах для WSL доступа
             ],
             ...launchOptions
         });
