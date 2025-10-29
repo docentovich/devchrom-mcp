@@ -256,7 +256,7 @@ async function closeAllPages() {
 const server = new McpServer(
     {
         name: 'devchrome-mcp',
-        version: '1.9.6',
+        version: '1.9.7',
         description: `
 🎨 PROFESSIONAL PIXEL-PERFECT DESIGN VALIDATION SYSTEM 🎨
 
