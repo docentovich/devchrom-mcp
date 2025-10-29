@@ -222,7 +222,7 @@ async function closeAllPages() {
 const server = new McpServer(
     {
         name: 'devchrome-mcp',
-        version: '1.9.2',
+        version: '1.9.4',
         description: `
 🎨 PROFESSIONAL PIXEL-PERFECT DESIGN VALIDATION SYSTEM 🎨
 
@@ -639,8 +639,8 @@ server.registerTool(
                 .describe('CSS selector (optional). If omitted or empty, the <body> element is used')
         }
     },
-    async ({ selector }) => {
-        const page = await getLastOpenPage();
+    async ({ url, selector }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
             const nodeId = await resolveNodeId(client, selector);
@@ -673,8 +673,8 @@ server.registerTool(
                 .describe('CSS selector (optional). If omitted or empty, the <body> element is used')
         }
     },
-    async ({ selector }) => {
-        const page = await getLastOpenPage();
+    async ({ url, selector }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
             const nodeId = await resolveNodeId(client, selector);
@@ -706,8 +706,8 @@ server.registerTool(
                 .describe('CSS selector (optional). If omitted or empty, the <body> element is used')
         }
     },
-    async ({ selector }) => {
-        const page = await getLastOpenPage();
+    async ({ url, selector }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
             const nodeId = await resolveNodeId(client, selector);
@@ -743,11 +743,13 @@ server.registerTool(
         description: 'Find all elements that match the CSS selector; return an array of outerHTML.',
         inputSchema: {
             // url parameter removed - uses active tab by default,
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector (required for multiple matches)')
         }
     },
-    async ({ selector }) => {
-        const page = await getLastOpenPage();
+    async ({ url, selector }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
             const { root } = await client.send('DOM.getDocument');
@@ -930,7 +932,7 @@ server.registerTool(
         }
     },
     async ({ className, componentName }) => {
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
 
@@ -1022,11 +1024,13 @@ server.registerTool(
         description: 'Get precise element positioning, dimensions, margins, padding, and borders. Crucial for layout debugging, responsive design validation, and pixel-perfect positioning. Returns complete box model data including content, padding, border, and margin dimensions.',
         inputSchema: {
             // url parameter removed - uses active tab by default,
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector')
         }
     },
-    async ({ selector }) => {
-        const page = await getLastOpenPage();
+    async ({ url, selector }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
 
@@ -1075,12 +1079,14 @@ server.registerTool(
             'Retrieve N parent elements with HTML & computed CSS (inline snapshot via getComputedStyle).',
         inputSchema: {
             url: z.string().url().describe('Page URL'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector'),
             levels: z.number().int().min(1).describe('How many levels up from the element')
         }
     },
     async ({ selector, levels }) => {
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         try {            const parents = await page.evaluate(
                 ({ selector, levels }) => {
                     const el = document.querySelector(selector);
@@ -1137,7 +1143,7 @@ server.registerTool(
         }
     },
     async ({ selector, styles }) => {
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         try {            const dict = {};
             for (const item of styles) {
                 if (!item) continue;
@@ -1173,12 +1179,14 @@ server.registerTool(
         description: 'Capture high-quality PNG screenshots of specific elements for visual testing, design reviews, and documentation. Essential for pixel-perfect comparisons, responsive design validation, and visual regression testing. Supports padding for better context.',
         inputSchema: {
             // url parameter removed - uses active tab by default,
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for the element'),
             padding: z.number().optional().describe('Padding in pixels around the element')
         }
     },
     async ({ selector, padding = 0 }) => {
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
 
@@ -1240,8 +1248,8 @@ server.registerTool(
             // url parameter removed - uses active tab by default
         }
     },
-    async ({}) => {
-        const page = await getLastOpenPage();
+    async ({ url }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
 
@@ -1276,7 +1284,7 @@ server.registerTool(
         }
     },
     async ({ width, height, deviceScaleFactor = 1 }) => {
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         try {
             await page.setViewport({ width, height, deviceScaleFactor });
 const client = page._cdpClient || await page.target().createCDPSession();
@@ -1304,11 +1312,13 @@ server.registerTool(
         description: 'Simulate mouse hover over an element to test hover effects, tooltips, dropdown menus, and interactive states. Essential for testing CSS :hover pseudo-classes and JavaScript hover events.',
         inputSchema: {
             // url parameter removed - uses active tab by default,
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for the element to hover')
         }
     },
-    async ({ selector }) => {
-        const page = await getLastOpenPage();
+    async ({ url, selector }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
 
@@ -1339,11 +1349,13 @@ server.registerTool(
         description: 'Simulate mouse click on an element to test buttons, links, form interactions, and JavaScript click handlers. Essential for testing user interactions and form submissions.',
         inputSchema: {
             // url parameter removed - uses active tab by default,
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for the element to click')
         }
     },
-    async ({ selector }) => {
-        const page = await getLastOpenPage();
+    async ({ url, selector }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
 
@@ -1380,12 +1392,14 @@ server.registerTool(
         description: 'Scroll page to bring an element into view. Perfect for testing sticky elements, lazy loading, scroll animations, and ensuring elements are properly visible on long pages.',
         inputSchema: {
             // url parameter removed - uses active tab by default,
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for the element to scroll to'),
             behavior: z.enum(['auto', 'smooth']).optional().describe('Scroll behavior (auto or smooth)')
         }
     },
     async ({ selector, behavior = 'auto' }) => {
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
 
@@ -1423,8 +1437,8 @@ server.registerTool(
             // url parameter removed - uses active tab by default
         }
     },
-    async ({}) => {
-        const page = await getLastOpenPage();
+    async ({ url }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
 
@@ -1499,8 +1513,8 @@ server.registerTool(
             // url parameter removed - uses active tab by default
         }
     },
-    async ({}) => {
-        const page = await getLastOpenPage();
+    async ({ url }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
 
@@ -1615,11 +1629,13 @@ server.registerTool(
         description: 'Analyze page accessibility including ARIA attributes, contrast ratios, keyboard navigation, and screen reader compatibility. Essential for WCAG compliance and inclusive design.',
         inputSchema: {
             // url parameter removed - uses active tab by default,
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().optional().describe('CSS selector to analyze specific element (optional)')
         }
     },
-    async ({ selector }) => {
-        const page = await getLastOpenPage();
+    async ({ url, selector }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
 
@@ -1684,6 +1700,8 @@ server.registerTool(
         inputSchema: {
             url1: z.string().url().describe('First page URL'),
             url2: z.string().url().describe('Second page URL'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for the element to compare'),
             threshold: z.number().min(0).max(1).optional().describe('Difference threshold (0-1, default: 0.01)'),
             padding: z.number().optional().describe('Padding around element in pixels')
@@ -1792,11 +1810,13 @@ server.registerTool(
         description: 'Get precise pixel measurements of an element including sub-pixel positioning, computed dimensions, and visual boundaries. Essential for pixel-perfect layout validation and design system compliance.',
         inputSchema: {
             // url parameter removed - uses active tab by default,
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for the element to measure')
         }
     },
-    async ({ selector }) => {
-        const page = await getLastOpenPage();
+    async ({ url, selector }) => {
+        const page = await getPageForOperation(url);
         try {
 const client = page._cdpClient || await page.target().createCDPSession();
 
@@ -1985,6 +2005,8 @@ Uses advanced computer vision techniques to identify even 1-2% differences in de
         inputSchema: {
             url1: z.string().url().describe('First page URL'),
             url2: z.string().url().describe('Second page URL'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for elements to compare'),
             threshold: z.number().min(0).max(1).optional().describe('Difference threshold (0-1, default: 0.01)'),
             padding: z.number().optional().describe('Padding around element in pixels'),
@@ -2148,6 +2170,8 @@ server.registerTool(
         inputSchema: {
             url1: z.string().url().describe('First page URL'),
             url2: z.string().url().describe('Second page URL'), 
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+ 
             selector: z.string().describe('CSS selector for elements to analyze'),
             colorTolerance: z.number().min(0).max(255).optional().describe('Color tolerance (0-255, default: 10)')
         }
@@ -2467,6 +2491,8 @@ Eliminates guesswork by providing direct, automated design-vs-reality comparison
             fileKey: z.string().describe('Figma file key'),
             nodeId: z.string().describe('Figma frame/component ID'),
             url: z.string().url().describe('Web page URL'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for page element'),
             threshold: z.number().min(0).max(1).optional().describe('Difference threshold (0-1, default: 0.05)'),
             figmaScale: z.number().min(0.1).max(4).optional().describe('Figma export scale (default: 2)')
@@ -2478,7 +2504,7 @@ Eliminates guesswork by providing direct, automated design-vs-reality comparison
         if (!token) {
             throw new McpError(ErrorCode.InvalidRequest, 'Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
         }
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         
         try {
             // Получаем Figma изображение
@@ -2730,6 +2756,8 @@ server.registerTool(
         inputSchema: {
             url1: z.string().url().describe('First page URL'),
             url2: z.string().url().describe('Second page URL'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for text elements to compare')
         }
     },
@@ -2902,6 +2930,8 @@ server.registerTool(
         inputSchema: {
             url1: z.string().url().describe('First page URL'),
             url2: z.string().url().describe('Second page URL'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for elements to compare spacing'),
             tolerance: z.number().min(0).optional().describe('Tolerance in pixels for spacing differences (default: 1)')
         }
@@ -3108,6 +3138,8 @@ server.registerTool(
         inputSchema: {
             url1: z.string().url().describe('First page URL'),
             url2: z.string().url().describe('Second page URL'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for layout elements to compare'),
             includeChildren: z.boolean().optional().describe('Include child elements in analysis (default: false)')
         }
@@ -3423,6 +3455,8 @@ The tool suggests tolerance adjustments based on failure patterns:
         inputSchema: {
             url1: z.string().url().describe('First page URL'),
             url2: z.string().url().describe('Second page URL'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for elements to compare'),
             tolerances: z.object({
                 colorDelta: z.number().min(0).max(255).optional().describe('RGB color difference tolerance (0-255, default: 10)'),
@@ -3728,6 +3762,8 @@ server.registerTool(
         description: 'Check if page elements comply with design system standards including colors, typography, spacing, and component variations with defined tolerances.',
         inputSchema: {
             url: z.string().url().describe('Page URL to validate'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('CSS selector for elements to validate'),
             designSystem: z.object({
                 colors: z.array(z.string()).optional().describe('Allowed colors in hex format (e.g., ["#FF0000", "#00FF00"])'),
@@ -3742,7 +3778,7 @@ server.registerTool(
         }
     },
     async ({ selector, designSystem, tolerance = {} }) => {
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         
         const config = {
             colorTolerance: tolerance.color || 15,
@@ -4064,13 +4100,15 @@ Perfect for ensuring proper HTML semantics, accessibility structure, and compone
 - ARIA implementation assessment`,
         inputSchema: {
             url: z.string().url().describe('Page URL to analyze'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().optional().describe('Root selector to analyze (default: body)'),
             includeAttributes: z.boolean().optional().describe('Include detailed attribute analysis (default: true)'),
             maxDepth: z.number().min(1).max(20).optional().describe('Maximum nesting depth to analyze (default: 10)')
         }
     },
     async ({ selector = 'body', includeAttributes = true, maxDepth = 10 }) => {
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         
         try {            const structure = await page.evaluate((rootSelector, includeAttrs, maxD) => {
                 const rootElement = document.querySelector(rootSelector);
@@ -4294,6 +4332,8 @@ Ensures components are properly composed and follow best practices.
         inputSchema: {
             url1: z.string().url().describe('First page URL'),
             url2: z.string().url().describe('Second page URL'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('Root selector to compare hierarchy'),
             ignoreOrder: z.boolean().optional().describe('Ignore child element order (default: false)'),
             compareAttributes: z.boolean().optional().describe('Compare element attributes (default: true)')
@@ -4517,13 +4557,15 @@ Ensures buttons work, forms submit, links navigate, and accessibility is maintai
 - Testing focus management and tab order`,
         inputSchema: {
             url: z.string().url().describe('Page URL to analyze'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().optional().describe('Container selector (default: body)'),
             testInteractions: z.boolean().optional().describe('Actually test interactions (default: false)'),
             includeKeyboard: z.boolean().optional().describe('Test keyboard accessibility (default: true)')
         }
     },
     async ({ url, selector = 'body', testInteractions = false, includeKeyboard = true }) => {
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         
         try {            const analysis = await page.evaluate(async (containerSel, testInter, testKeyboard) => {
                 const container = document.querySelector(containerSel);
@@ -4772,6 +4814,8 @@ Perfect for design review meetings, client presentations, and development docume
         inputSchema: {
             url1: z.string().url().describe('Reference URL (design/expected version)'),
             url2: z.string().url().describe('Implementation URL (actual version)'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('Main container selector to analyze'),
             figmaConfig: z.object({
                 token: z.string().optional(),
@@ -4911,7 +4955,7 @@ Perfect for design review meetings, client presentations, and development docume
             // 2. Figma Comparison (if configured)
             if (figmaConfig) {
                 try {
-                    const page = await getLastOpenPage();
+                    const page = await getPageForOperation(url);
                     
                     try {
                         // Use provided token or fall back to environment variable
@@ -5032,7 +5076,7 @@ Perfect for design review meetings, client presentations, and development docume
             
             // 4. Semantic Analysis (if enabled)
             if (options.includeSemantics) {
-                const page = await getLastOpenPage();
+                const page = await getPageForOperation(url);
                 
                 try {
                     await page.goto(url2, { waitUntil: 'networkidle2' });
@@ -5200,13 +5244,15 @@ Perfect for design reviews, client feedback, and developer guidance.
 - Alignment guides and measurement tools`,
         inputSchema: {
             url: z.string().url().describe('Page URL to annotate'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().describe('Element selector to focus on'),
             annotationTypes: z.array(z.enum(['spacing', 'colors', 'typography', 'alignment', 'elements'])).optional().describe('Types of annotations to include'),
             outputFormat: z.enum(['base64', 'measurements']).optional().describe('Output format (default: base64)')
         }
     },
     async ({ url, selector, annotationTypes = ['spacing', 'colors', 'alignment'], outputFormat = 'base64' }) => {
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         
         try {            const element = await page.$(selector);
             if (!element) {
@@ -5402,6 +5448,8 @@ Creates detailed, structured prompts that help AI understand and work with web p
 - Creating accessibility audit prompts`,
         inputSchema: {
             url: z.string().url().describe('Page URL to analyze'),
+            url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
             selector: z.string().optional().describe('Optional selector to focus analysis'),
             promptType: z.enum([
                 'bug-report',
@@ -6202,6 +6250,8 @@ server.registerTool(
             url: z.string().describe('Web page URL to compare'),
             comparisons: z.array(z.object({
                 figmaNodeId: z.string().describe('Figma node ID'),
+                url: z.string().optional().describe('Page URL (optional, uses last opened page if not provided)'),
+
                 selector: z.string().describe('CSS selector for HTML element'),
                 tolerance: z.number().min(0).max(1).optional().describe('Tolerance threshold (0-1)')
             })).describe('Array of comparison pairs')
@@ -6351,7 +6401,7 @@ server.registerTool(
         }
     },
     async ({ url, script, waitAfter = 500 }) => {
-        const page = await getLastOpenPage();
+        const page = await getPageForOperation(url);
         try {
 // Выполняем скрипт
             const result = await page.evaluate((code) => {
