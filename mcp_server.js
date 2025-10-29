@@ -2359,31 +2359,14 @@ server.registerTool(
             }
             
             const imageBuffer = await imageResponse.buffer();
-            
-            // Получаем информацию о frame
-            const fileData = await fetchFigmaAPI(`files/${fileKey}`, token);
-            
-            // Ищем информацию о ноде
-            function findNode(node, targetId) {
-                if (node.id === targetId) return node;
-                if (node.children) {
-                    for (const child of node.children) {
-                        const found = findNode(child, targetId);
-                        if (found) return found;
-                    }
-                }
-                return null;
-            }
-            
-            let frameInfo = null;
-            for (const page of Object.values(fileData.document.children)) {
-                frameInfo = findNode(page, nodeId);
-                if (frameInfo) break;
-            }
+
+            // Получаем информацию о frame через nodes API (избегаем загрузки всего файла)
+            const nodesData = await fetchFigmaAPI(`files/${fileKey}/nodes?ids=${encodeURIComponent(nodeId)}`, token);
+            const frameInfo = nodesData.nodes?.[nodeId]?.document;
             
             const result = {
                 figmaInfo: {
-                    fileName: fileData.name,
+                    fileName: nodesData.name || 'Unknown',
                     frameId: nodeId,
                     frameName: frameInfo?.name || 'Unknown',
                     dimensions: frameInfo ? {
@@ -2611,44 +2594,20 @@ server.registerTool(
             throw new McpError(ErrorCode.InvalidRequest, 'Figma token is required. Pass it as parameter or set FIGMA_TOKEN environment variable in MCP config.');
         }
         try {
-            // Получаем данные файла
-            const fileData = await fetchFigmaAPI(`files/${fileKey}`, token);
-            
-            // Ищем нужный узел
-            function findNodeWithPath(node, targetId, path = []) {
-                const currentPath = [...path, { id: node.id, name: node.name, type: node.type }];
-                
-                if (node.id === targetId) {
-                    return { node, path: currentPath };
-                }
-                
-                if (node.children) {
-                    for (const child of node.children) {
-                        const result = findNodeWithPath(child, targetId, currentPath);
-                        if (result) return result;
-                    }
-                }
-                return null;
+            // Получаем конкретный node через nodes API (избегаем загрузки всего файла)
+            const nodesData = await fetchFigmaAPI(`files/${fileKey}/nodes?ids=${encodeURIComponent(nodeId)}`, token);
+
+            if (!nodesData.nodes || !nodesData.nodes[nodeId]) {
+                throw new Error(`Node ${nodeId} not found in Figma file`);
             }
-            
-            let nodeData = null;
-            for (const page of fileData.document.children) {
-                nodeData = findNodeWithPath(page, nodeId);
-                if (nodeData) break;
-            }
-            
-            if (!nodeData) {
-                throw new Error( `Node ${nodeId} not found in Figma file`);
-            }
-            
-            const { node, path } = nodeData;
+
+            const node = nodesData.nodes[nodeId].document;
             
             // Извлекаем спецификации
             const specs = {
                 general: {
                     name: node.name,
                     type: node.type,
-                    path: path.map(p => p.name).join(' > '),
                     visible: node.visible !== false
                 },
                 dimensions: node.absoluteBoundingBox ? {
